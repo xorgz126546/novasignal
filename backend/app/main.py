@@ -68,7 +68,8 @@ def create_app() -> FastAPI:
         resp.headers["X-Content-Type-Options"] = "nosniff"
         resp.headers["X-Frame-Options"] = "DENY"
         resp.headers["Referrer-Policy"] = "no-referrer"
-        resp.headers["Cache-Control"] = "no-store"
+        if request.url.path.startswith("/api/"):
+            resp.headers["Cache-Control"] = "no-store"
         if s.is_production:
             resp.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
         return resp
@@ -81,7 +82,33 @@ def create_app() -> FastAPI:
     for r in (public.router, auth.router, signals.router, dashboard.router, settings.router, validation.router,
               admin.router, telegram.router):
         app.include_router(r)
+    if s.static_dir:
+        _mount_spa(app, s.static_dir)
     return app
+
+
+def _mount_spa(app: FastAPI, directory: str) -> None:
+    """Serve the built React app on the same origin (single-service deploys). Unknown paths -> index.html."""
+    from pathlib import Path
+
+    from fastapi import HTTPException
+    from fastapi.responses import FileResponse
+
+    root = Path(directory).resolve()
+    index = root / "index.html"
+    if not index.is_file():
+        log.warning("STATIC_DIR %s has no index.html; dashboard not served", root)
+        return
+
+    @app.get("/{path:path}", include_in_schema=False)
+    async def spa(path: str):
+        if path.startswith("api/"):
+            raise HTTPException(404)
+        f = (root / path).resolve()
+        if path and f.is_file() and root in f.parents:  # no path traversal outside the build dir
+            headers = {"Cache-Control": "public, max-age=31536000, immutable"} if path.startswith("assets/") else None
+            return FileResponse(f, headers=headers)
+        return FileResponse(index, headers={"Cache-Control": "no-cache"})
 
 
 app = create_app()

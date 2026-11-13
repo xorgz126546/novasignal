@@ -44,6 +44,12 @@ Register the first account; it becomes the **admin**. Open **Admin → Run scan 
 against Binance public data. To scan automatically, set `ENABLE_SCHEDULER=true`. To use Telegram, see
 `docs/DEPLOYMENT.md#telegram`.
 
+## Use it on your phone
+
+Deploy once to Render with the included `render.yaml` (one service serving dashboard + API, plus PostgreSQL).
+Then add the site to your home screen; it installs like an app. Signals also arrive in Telegram with
+ENTERED / SKIPPED / CLOSED buttons. Step-by-step, phone-only guide: **[docs/PHONE.md](docs/PHONE.md)**.
+
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md): system design, data model, signal lifecycle, the three performance tracks

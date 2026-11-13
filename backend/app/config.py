@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     # --- Database (single source of truth: PostgreSQL in production, SQLite for dev/tests) ---
     database_url: str = "sqlite:///./cryptonex.db"
 
+    # --- Single-service hosting: serve the built dashboard (frontend/dist) from the API ---
+    static_dir: str = ""
+
     # --- Binance (PUBLIC market data only; no keys needed, no trading, no withdrawals) ---
     binance_base_url: str = "https://data-api.binance.vision"
     binance_timeout_s: float = 10.0
@@ -60,6 +63,15 @@ class Settings(BaseSettings):
             raise ValueError("SECRET_KEY must be at least 16 characters")
         return v
 
+    @field_validator("database_url")
+    @classmethod
+    def _normalize_db_url(cls, v: str) -> str:
+        # Hosts like Render/Heroku hand out postgres:// URLs; SQLAlchemy + psycopg3 needs postgresql+psycopg://
+        for prefix in ("postgres://", "postgresql://"):
+            if v.startswith(prefix):
+                return "postgresql+psycopg://" + v[len(prefix):]
+        return v
+
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
@@ -75,7 +87,14 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
+    import os
+
     s = Settings()
+    # Render/Railway expose the service's public URL; use it when PUBLIC_BASE_URL isn't set explicitly.
+    ext = os.environ.get("RENDER_EXTERNAL_URL") or (
+        f"https://{os.environ['RAILWAY_PUBLIC_DOMAIN']}" if os.environ.get("RAILWAY_PUBLIC_DOMAIN") else "")
+    if ext and "PUBLIC_BASE_URL" not in os.environ:
+        s.public_base_url = ext.rstrip("/")
     if s.is_production and s.secret_key.startswith("dev-insecure"):
         raise RuntimeError("Refusing to start in production with the default SECRET_KEY")
     return s

@@ -59,7 +59,7 @@ export default function Layout() {
         <button aria-label="Menu" className="btn-ghost px-3" onClick={() => setOpen(!open)}>☰</button>
       </header>
       {open && (
-        <div className="lg:hidden fixed inset-0 z-20 bg-ink/95 pt-16 px-4">
+        <div className="lg:hidden fixed inset-0 z-20 bg-ink pt-20 px-4 pb-8 overflow-y-auto">
           {links}
           <button className="btn-ghost w-full mt-6" onClick={() => { logout(); nav("/"); }}>Sign out</button>
         </div>

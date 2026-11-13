@@ -234,3 +234,29 @@ async def test_notify_new_signal_and_outcome(client, db, tg):
     assert "TARGET HIT" in tg.texts()[-1]
     await bot.notify("system_alert", "test alert")
     assert "System alert" in tg.texts()[-1]
+
+
+def test_spa_serving_and_no_path_traversal(tmp_path):
+    from fastapi import FastAPI
+
+    from app.main import _mount_spa
+    site = tmp_path / "dist"
+    (site / "assets").mkdir(parents=True)
+    (site / "index.html").write_text("<html>SPA</html>")
+    (site / "assets" / "app.js").write_text("js")
+    (tmp_path / "secret.txt").write_text("TOP-SECRET")
+    a = FastAPI()
+    _mount_spa(a, str(site))
+    with TestClient(a) as c:
+        assert c.get("/").text == "<html>SPA</html>"
+        assert c.get("/app/signals/3").text == "<html>SPA</html>"  # client-side route
+        assert c.get("/assets/app.js").text == "js"
+        for bad in ("/../secret.txt", "/assets/../../secret.txt", "/..%2fsecret.txt", "/%2e%2e/secret.txt"):
+            assert "TOP-SECRET" not in c.get(bad).text
+        assert c.get("/api/unknown").status_code == 404
+
+
+def test_postgres_url_normalized():
+    from app.config import Settings
+    assert Settings(database_url="postgres://u:p@h/db").database_url == "postgresql+psycopg://u:p@h/db"
+    assert Settings(database_url="sqlite:///x.db").database_url == "sqlite:///x.db"

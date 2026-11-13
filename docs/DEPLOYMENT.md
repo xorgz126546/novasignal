@@ -1,6 +1,9 @@
 # Deployment
 
-Recommended production layout:
+**Simplest:** one service. The root `Dockerfile` builds the dashboard and serves it from the API on the same URL
+(`STATIC_DIR`). `render.yaml` deploys that plus PostgreSQL on Render in one step; see [PHONE.md](PHONE.md).
+
+Split layout (larger deployments):
 
 | Component | Suggested host | Notes |
 |---|---|---|

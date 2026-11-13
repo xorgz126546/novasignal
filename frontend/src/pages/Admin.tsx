@@ -62,6 +62,13 @@ export default function Admin() {
             <div className="flex gap-2 pt-1">
               {["binance", "telegram", "scheduler"].map((n) => <button key={n} className="btn-ghost text-xs px-3 py-1" onClick={() => act(`/api/admin/services/${n}/restart`, () => `${n} restarted`)}>Restart {n}</button>)}
             </div>
+            <div className="pt-3 border-t border-graphite-700">
+              <button className="btn-ghost text-xs px-3 py-1" disabled={busy || !window.location.origin.startsWith("https://")}
+                onClick={() => act(`/api/telegram/setup-webhook?public_api_url=${encodeURIComponent(window.location.origin)}`, (r) => `Telegram webhook connected for @${r.bot}`)}>
+                Connect Telegram webhook
+              </button>
+              <p className="text-[11px] text-zinc-500 mt-1">Registers {window.location.origin}/api/telegram/webhook with Telegram (requires HTTPS and TELEGRAM_BOT_TOKEN on the server).</p>
+            </div>
           </div>
         </Section>
         <Section title="Exports">
