@@ -217,3 +217,5 @@ legacy/*.local
 node_modules/
 frontend/dist/
 .pytest_cache/
+*.tsbuildinfo
+!frontend/src/lib/
