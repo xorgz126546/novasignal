@@ -6,6 +6,7 @@ opportunity, approved or rejected, is stored for the 30-day validation program.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -54,7 +55,21 @@ def _past_signal_returns(db: Session) -> list[float]:
                                   .order_by(Signal.id.desc()).limit(100))]
 
 
+_scan_lock = asyncio.Lock()
+
+
 async def run_scan_cycle(db: Session, client: BinanceClient, notify=None, now: datetime | None = None) -> ScanCycle:
+    """Serialized: a manual scan never overlaps a scheduled one (prevents double approvals)."""
+    if _scan_lock.locked():
+        c = ScanCycle(started_at=utcnow(), finished_at=utcnow(), status="skipped", notes="another scan is in progress")
+        db.add(c)
+        db.commit()
+        return c
+    async with _scan_lock:
+        return await _run_scan_cycle(db, client, notify, now)
+
+
+async def _run_scan_cycle(db: Session, client: BinanceClient, notify=None, now: datetime | None = None) -> ScanCycle:
     now = now or utcnow()
     cfg: TradingConfig = load_config(db)
     risk = cfg.risk

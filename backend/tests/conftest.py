@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 _tmp = tempfile.mkdtemp()
-os.environ["DATABASE_URL"] = f"sqlite:///{_tmp}/test.db"
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", f"sqlite:///{_tmp}/test.db")
 os.environ["SECRET_KEY"] = "test-secret-key-0123456789"
 os.environ["ENVIRONMENT"] = "test"
 os.environ["ENABLE_SCHEDULER"] = "false"

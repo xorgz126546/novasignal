@@ -298,3 +298,16 @@ async def test_pipeline_records_failure(db):
             raise RuntimeError("boom")
     c = await pipeline.run_scan_cycle(db, Broken())
     assert c.status == "error" and "boom" in c.error
+
+
+async def test_concurrent_scans_are_serialized(db):
+    import asyncio
+
+    class Slow(FakeMarket):
+        async def exchange_info(self):
+            await asyncio.sleep(0.2)
+            return await super().exchange_info()
+    from app.db import SessionLocal
+    with SessionLocal() as db2:
+        a, b = await asyncio.gather(pipeline.run_scan_cycle(db, Slow()), pipeline.run_scan_cycle(db2, Slow()))
+    assert sorted([a.status, b.status]) == ["ok", "skipped"]
