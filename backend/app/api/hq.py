@@ -358,3 +358,22 @@ async def inject_failure(body: InjectIn, admin: User = Depends(require_admin), d
     await handle_new_incidents(db, r["incidents"])
     client.inject_failures = 0
     return {"incidents": r["incidents"], "note": "Injection cleared; the incident auto-resolves on the next healthy check."}
+
+
+@router.post("/growth")
+async def growth(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from ..hq.loops.growth import run_content, run_trends
+
+    rep = await run_trends(db)
+    drafts = await run_content(db)
+    return {"trends_report": rep.id, "drafts": [d.id for d in drafts]}
+
+
+@router.get("/drafts/{did}/card.svg")
+def draft_card(did: int, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from fastapi.responses import Response
+
+    d = db.get(HQDraft, did)
+    if not d or d.kind != "signal_card":
+        raise HTTPException(404)
+    return Response(d.body, media_type="image/svg+xml", headers={"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'"})
