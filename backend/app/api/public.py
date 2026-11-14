@@ -25,7 +25,9 @@ def health(db: Session = Depends(get_db)):
     tg = db.get(ServiceState, "telegram")
     return {"status": "ok", "app": get_settings().app_name,
             "version": os.environ.get("RENDER_GIT_COMMIT", "")[:7] or None,
-            "telegram": "not_configured" if not get_settings().telegram_configured else (tg.status if tg else "pending")}
+            "telegram": "not_configured" if not get_settings().telegram_configured else (tg.status if tg else "pending"),
+            # Telegram's own error text only (e.g. "401 Unauthorized"); the client never includes the token in errors.
+            "telegram_error": (tg.last_error or "")[:160] if tg and tg.status != "ok" else None}
 
 
 @router.get("/public/methodology")

@@ -63,6 +63,13 @@ class Settings(BaseSettings):
             raise ValueError("SECRET_KEY must be at least 16 characters")
         return v
 
+    @field_validator("telegram_bot_token", "telegram_webhook_secret")
+    @classmethod
+    def _strip_secret(cls, v: str) -> str:
+        # Values pasted from a phone often carry spaces/newlines; a leading "bot" prefix is also a common mistake.
+        v = v.strip().strip('"').strip("'").strip()
+        return v[3:] if v.lower().startswith("bot") and ":" in v[3:] else v
+
     @field_validator("database_url")
     @classmethod
     def _normalize_db_url(cls, v: str) -> str:

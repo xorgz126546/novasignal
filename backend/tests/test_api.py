@@ -290,3 +290,21 @@ async def test_auto_register_webhook_at_startup(tg, monkeypatch, db):
     monkeypatch.setattr(get_settings(), "public_base_url", "http://localhost:5173")
     await bot.auto_register_webhook()  # never registers a non-HTTPS URL
     assert tg.calls == []
+
+
+def test_pasted_token_is_cleaned():
+    from app.config import Settings
+    assert Settings(telegram_bot_token="  123:ABC_def \n").telegram_bot_token == "123:ABC_def"
+    assert Settings(telegram_bot_token="bot123:ABC").telegram_bot_token == "123:ABC"
+    assert Settings(telegram_bot_token='"123:ABC"').telegram_bot_token == "123:ABC"
+
+
+def test_telegram_errors_never_include_token():
+    import asyncio
+
+    from app.telegram.client import TelegramClient, TelegramError
+    c = TelegramClient("999:SECRETTOKEN", transport=httpx.MockTransport(
+        lambda r: httpx.Response(401, json={"ok": False, "description": "Unauthorized"})))
+    with pytest.raises(TelegramError) as e:
+        asyncio.run(c.get_me())
+    assert "SECRETTOKEN" not in str(e.value) and "Unauthorized" in str(e.value)
