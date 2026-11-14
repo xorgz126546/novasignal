@@ -51,6 +51,9 @@ async def lifespan(app: FastAPI):
         from .telegram.bot import auto_register_webhook
 
         await auto_register_webhook()
+        from .hq.notify import welcome_owner_once
+
+        await welcome_owner_once()
     except Exception:
         log.exception("telegram auto-registration failed")
     yield

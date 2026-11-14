@@ -241,35 +241,58 @@ def _wants(user: User, key: str) -> bool:
     return (user.notification_prefs or {}).get(key, True)
 
 
+def _render(db, event: str, payload, user: User | None) -> tuple[str, dict | None] | None:
+    """Message text (+ inline keyboard) for one recipient; None = this recipient doesn't get this event."""
+    s = get_settings()
+    if event == "new_signal":
+        if user and not _wants(user, "new_signal"):
+            return None
+        # buttons only for linked users (a channel can't report ENTERED/SKIPPED for a person)
+        return M.new_signal(payload, s.public_base_url), (M.signal_keyboard(payload.id) if user else None)
+    if event == "outcome":
+        key = {"TARGET_HIT": "target_hit", "STOP_LOSS_HIT": "stop_loss", "EXPIRED": "expired"}.get(payload.theoretical_outcome, "outcome")
+        if user and not _wants(user, key):
+            return None
+        return M.outcome(db.get(Signal, payload.id)), None
+    if event == "text":
+        return (payload, None) if (not user or _wants(user, "new_signal")) else None
+    if event == "daily_summary":
+        if user and not _wants(user, "daily_summary"):
+            return None
+        return (payload + "\n\n" + _perf_text(db, user)) if user else payload, None
+    if event == "system_alert":
+        if user and (user.role != "admin" or not _wants(user, "system_alerts")):
+            return None
+        return f"⚠️ <b>System alert</b>\n{payload}", None
+    return None
+
+
 async def notify(event: str, payload, prev_status: str | None = None) -> None:
-    """Outbound notifications. Failures are logged and recorded; they never break the engine."""
+    """Outbound notifications to every linked user AND the owner's chat/channel (TELEGRAM_CHAT_ID).
+    Each recipient is independent: one failure never blocks the others or the engine."""
     client = get_client()
     if client is None:
         return
     s = get_settings()
     with SessionLocal() as db:
         users = list(db.scalars(select(User).where(User.telegram_chat_id.is_not(None), User.is_active.is_(True))))
-        try:
-            for u in users:
-                if event == "new_signal" and _wants(u, "new_signal"):
-                    await client.send_message(u.telegram_chat_id, M.new_signal(payload, s.public_base_url),
-                                              M.signal_keyboard(payload.id))
-                elif event == "outcome":
-                    key = {"TARGET_HIT": "target_hit", "STOP_LOSS_HIT": "stop_loss", "EXPIRED": "expired"}.get(
-                        payload.theoretical_outcome, "outcome")
-                    if _wants(u, key):
-                        sig = db.get(Signal, payload.id)
-                        await client.send_message(u.telegram_chat_id, M.outcome(sig))
-                elif event == "text" and _wants(u, "new_signal"):
-                    await client.send_message(u.telegram_chat_id, payload)
-                elif event == "daily_summary" and _wants(u, "daily_summary"):
-                    await client.send_message(u.telegram_chat_id, payload + "\n\n" + _perf_text(db, u))
-                elif event == "system_alert" and u.role == "admin" and _wants(u, "system_alerts"):
-                    await client.send_message(u.telegram_chat_id, f"⚠️ <b>System alert</b>\n{payload}")
+        recipients: list[tuple[str, User | None]] = [(u.telegram_chat_id, u) for u in users]
+        if s.telegram_chat_id and s.telegram_chat_id not in {c for c, _ in recipients}:
+            recipients.append((s.telegram_chat_id, None))
+        errors = []
+        for chat_id, user in recipients:
+            msg = _render(db, event, payload, user)
+            if msg is None:
+                continue
+            try:
+                await client.send_message(chat_id, msg[0], msg[1])
+            except TelegramError as e:
+                log.warning("telegram notify to %s failed: %s", "owner chat" if user is None else f"user {user.id}", e)
+                errors.append(f"{'owner chat' if user is None else 'user ' + str(user.id)}: {e}")
+        if errors:
+            set_service_state(db, "telegram", ok=False, error="; ".join(errors)[:1000])
+        else:
             set_service_state(db, "telegram", ok=True)
-        except TelegramError as e:
-            log.warning("telegram notify failed: %s", e)
-            set_service_state(db, "telegram", ok=False, error=str(e))
 
 
 async def poll_forever() -> None:  # pragma: no cover - manual dev tool

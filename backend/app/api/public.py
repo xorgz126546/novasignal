@@ -27,7 +27,33 @@ def health(db: Session = Depends(get_db)):
             "version": os.environ.get("RENDER_GIT_COMMIT", "")[:7] or None,
             "telegram": "not_configured" if not get_settings().telegram_configured else (tg.status if tg else "pending"),
             # Telegram's own error text only (e.g. "401 Unauthorized"); the client never includes the token in errors.
-            "telegram_error": (tg.last_error or "")[:160] if tg and tg.status != "ok" else None}
+            "telegram_error": (tg.last_error or "")[:160] if tg and tg.status != "ok" else None,
+            "owner_chat": _owner_chat(db), "daily_pick": _daily_pick(db)}
+
+
+def _owner_chat(db):
+    from ..models import ServiceState
+
+    if not get_settings().telegram_chat_id:
+        return "not_configured"
+    st = db.get(ServiceState, "owner_chat")
+    if not st:
+        return "pending"
+    return st.status if st.status == "ok" else f"error: {(st.last_error or '')[:120]}"
+
+
+def _daily_pick(db):
+    """Status only (no prices/levels): when the pick last ran and whether it published or said NO TRADE."""
+    from sqlalchemy import select as _select
+
+    from ..hq.models import HQDecision
+    from ..models import AppSetting
+
+    jobs = (db.get(AppSetting, "hq_jobs").value if db.get(AppSetting, "hq_jobs") else {})
+    last = db.scalar(_select(HQDecision).where(HQDecision.cycle_ref.like("pick-%")).order_by(HQDecision.id.desc()).limit(1))
+    return {"enabled": get_settings().hq_daily_pick, "last_run": jobs.get("daily_pick"),
+            "last_tournament": jobs.get("tournament"),
+            "last_result": None if not last else ("picked" if last.decision == "SIGNAL" else "no_trade")}
 
 
 @router.get("/public/methodology")
