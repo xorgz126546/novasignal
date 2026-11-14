@@ -72,7 +72,16 @@ def jobs() -> list[tuple[str, str]]:
         ("backtest_baselines", "weekly FRI 06:00"),
         ("library", f"weekly {list(DOW)[s.hq_library_weekday]} 17:00"),
         ("pr_watch", "every 30m"),
+        ("daily_pick", f"daily {s.hq_daily_pick_time}"),
+        ("tournament", "weekly SUN 05:00"),
     ]
+
+
+def active_jobs() -> list[tuple[str, str]]:
+    s = get_settings()
+    if s.hq_enabled:
+        return jobs()
+    return [j for j in jobs() if s.hq_daily_pick and j[0] in ("daily_pick", "tournament")]
 
 
 async def run_job(name: str, db: Session) -> None:
@@ -112,6 +121,14 @@ async def run_job(name: str, db: Session) -> None:
     elif name == "library":
         from .loops.library import run_library
         await run_library(db)
+    elif name == "daily_pick":
+        from .loops.daily_pick import needs_tournament, run_daily_pick, run_tournament
+        if needs_tournament(db):
+            await run_tournament(db, client, notify_owner)
+        await run_daily_pick(db, client, notify, notify_owner)
+    elif name == "tournament":
+        from .loops.daily_pick import run_tournament
+        await run_tournament(db, client, notify_owner)
     elif name == "pr_watch":
         from .loops.repair import watch_prs
         await watch_prs(db)
@@ -122,7 +139,7 @@ async def tick(now: datetime | None = None) -> list[str]:
     ran = []
     with SessionLocal() as db:
         st = _state(db)
-    for name, sched in jobs():
+    for name, sched in active_jobs():
         last = datetime.fromisoformat(st[name]) if st.get(name) else None
         if not is_due(sched, last, now):
             continue
@@ -148,7 +165,8 @@ async def _loop() -> None:
 
 def start() -> None:
     global _task
-    if _task is None and get_settings().hq_enabled:
+    s = get_settings()
+    if _task is None and (s.hq_enabled or s.hq_daily_pick):
         _task = asyncio.get_running_loop().create_task(_loop())
         log.info("HQ scheduler started (%s)", get_settings().hq_timezone)
 

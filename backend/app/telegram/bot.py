@@ -260,6 +260,8 @@ async def notify(event: str, payload, prev_status: str | None = None) -> None:
                     if _wants(u, key):
                         sig = db.get(Signal, payload.id)
                         await client.send_message(u.telegram_chat_id, M.outcome(sig))
+                elif event == "text" and _wants(u, "new_signal"):
+                    await client.send_message(u.telegram_chat_id, payload)
                 elif event == "daily_summary" and _wants(u, "daily_summary"):
                     await client.send_message(u.telegram_chat_id, payload + "\n\n" + _perf_text(db, u))
                 elif event == "system_alert" and u.role == "admin" and _wants(u, "system_alerts"):

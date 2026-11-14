@@ -95,6 +95,9 @@ async def _run(db: Session, client: BinanceClient, notify, now: datetime) -> dic
                 contexts[sym] = btc if sym == "BTCUSDT" and btc else await fetch_context(client, sym, symbols.get(sym))
             except MarketDataError as e:
                 _decision(db, ref, sym, "NO_TRADE", "structure", [f"market data unavailable/stale: {e}"])
+        btc_ret = btc.features.get("ret_168_1h") if btc else None
+        for c in contexts.values():
+            c.extras["btc_ret_7d"] = btc_ret
         t.result = {"summary": f"structure ready for {len(contexts)} markets",
                     "bias": {s: {tf: c.structure.get(tf, {}).get("bias") for tf in ("4h", "1h", "15m")} for s, c in contexts.items()}}
 
@@ -124,7 +127,8 @@ async def _run(db: Session, client: BinanceClient, notify, now: datetime) -> dic
     with runtime.task(db, "risk", "risk", f"Risk review of {len(setups)} setup(s)") as t:
         btc_ok = riskmod.btc_filter(btc)
         for s, agent_id in setups:
-            v = riskmod.assess(s, contexts[s.symbol], risk, btc_ok, len(open_sigs), {x.symbol for x in open_sigs}, signals_today)
+            v = riskmod.assess(s, contexts[s.symbol], risk, btc_ok, len(open_sigs), {x.symbol for x in open_sigs}, signals_today,
+                               riskmod.is_decoupled(contexts[s.symbol], btc))
             if v.approved:
                 approved.append((s, agent_id, v.sizing, s.reasons + v.reasons))
             else:

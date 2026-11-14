@@ -73,7 +73,8 @@ async def run_gate(db: Session, client: BinanceClient, strategy: Strategy, param
         data = {}
         for sym in universe or DEFAULT_UNIVERSE:
             data[sym] = (await history(db, client, sym, "1h", 3000), await history(db, client, sym, "4h", 1000))
-        res = await asyncio.to_thread(simulate, strategy, params, data, risk)
+        btc = data["BTCUSDT"][0] if "BTCUSDT" in data else await history(db, client, "BTCUSDT", "1h", 3000)
+        res = await asyncio.to_thread(simulate, strategy, params, data, risk, None, 1, btc)
         n_var = variants_tried(db, subject.split("@")[0])
         result = gate(res, th, n_var, baseline)
         result["thresholds"] = asdict(th)

@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import bisect
 import math
 from dataclasses import dataclass, field
 
@@ -55,24 +56,37 @@ class BacktestResult:
         return [t.net_pct for t in sorted(self.trades, key=lambda t: t.entry_time)]
 
 
-def _ctx_at(symbol: str, c1h: list[Candle], c4h: list[Candle], i: int, risk_tick: float) -> Context:
+def _btc_ret_7d(btc: list[Candle] | None, close_times: list[int] | None, t: int) -> float | None:
+    if not btc or not close_times:
+        return None
+    j = bisect.bisect_right(close_times, t) - 1
+    if j < 168:
+        return None
+    return (btc[j].close - btc[j - 168].close) / btc[j - 168].close * 100
+
+
+def _ctx_at(symbol: str, c1h: list[Candle], c4h: list[Candle], i: int, risk_tick: float,
+            btc: list[Candle] | None = None, btc_ct: list[int] | None = None) -> Context:
     window = c1h[max(0, i - WINDOW + 1):i + 1]
     t_close = c1h[i].close_time
     h4 = [c for c in c4h if c.close_time <= t_close][-WINDOW:]
     feats, st = build_features({"1h": window, "4h": h4})
-    return Context(symbol, {"1h": window, "4h": h4}, feats, st, window[-1].close, risk_tick, 0.0, 0.0, backtest=True)
+    ctx = Context(symbol, {"1h": window, "4h": h4}, feats, st, window[-1].close, risk_tick, 0.0, 0.0, backtest=True)
+    ctx.extras["btc_ret_7d"] = _btc_ret_7d(btc, btc_ct, t_close)
+    return ctx
 
 
 def simulate(strategy: Strategy, params: dict, data: dict[str, tuple[list[Candle], list[Candle]]], risk: RiskConfig,
-             horizon_bars: int | None = None, step: int = 1) -> BacktestResult:
+             horizon_bars: int | None = None, step: int = 1, btc_1h: list[Candle] | None = None) -> BacktestResult:
     horizon = horizon_bars or int(risk.signal_horizon_hours)
     fee, slip = risk.fee_rate_pct / 100, risk.slippage_pct / 100
     res = BacktestResult(symbols=list(data))
+    btc_ct = [c.close_time for c in btc_1h] if btc_1h else None
     for sym, (c1h, c4h) in data.items():
         res.bars += max(0, len(c1h) - WARMUP)
         i = WARMUP
         while i < len(c1h) - 2:
-            r = strategy.evaluate(_ctx_at(sym, c1h, c4h, i, 0.0), params, risk)
+            r = strategy.evaluate(_ctx_at(sym, c1h, c4h, i, 0.0, btc_1h, btc_ct), params, risk)
             if not isinstance(r, Setup):
                 i += step
                 continue

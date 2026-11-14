@@ -17,6 +17,8 @@ log = logging.getLogger("cryptonex.hq.manager")
 
 # (pattern, intent). Arabic + English. Deterministic routing first; the LLM only words the reply.
 INTENTS = [
+    (re.compile(r"\b(best|pick|recommend\w*)\b|أفضل|توصية|افضل", re.I), "pick"),
+    (re.compile(r"\b(tournament|leaderboard|compare strategies)\b|بطولة|ترتيب الاستراتيجيات|قارن", re.I), "tournament"),
     (re.compile(r"^(learn about|research|تعلم عن|تعلّم عن|ابحث عن)\s+(.+)$", re.I), "learn"),
     (re.compile(r"\b(scan|analy[sz]e market)\b|افحص|حلل السوق|فحص", re.I), "scan"),
     (re.compile(r"\b(brief|morning)\b|موجز|ملخص الصباح", re.I), "brief"),
@@ -80,6 +82,21 @@ def _delegate(db: Session, intent: str, arg: str) -> str | None:
 
         _spawn(lambda d: run_hq_cycle(d, get_client()), "scan")
         return "scan"
+    if intent == "pick":
+        from ..loops.daily_pick import run_daily_pick
+        from ...market.binance import get_client
+        from ...telegram.bot import notify
+        from ..notify import notify_owner
+
+        _spawn(lambda d: run_daily_pick(d, get_client(), notify, notify_owner), "pick")
+        return "pick"
+    if intent == "tournament":
+        from ..loops.daily_pick import run_tournament
+        from ...market.binance import get_client
+        from ..notify import notify_owner
+
+        _spawn(lambda d: run_tournament(d, get_client(), notify_owner), "tournament")
+        return "tournament"
     if intent == "brief":
         from ..reports import build_brief
 
@@ -104,6 +121,10 @@ def _delegate(db: Session, intent: str, arg: str) -> str | None:
 
 
 CONFIRM = {
+    "pick": ("All strategy agents are scanning the market now. I'll publish the single best valid setup of the day, or NO TRADE with a watchlist.",
+             "كل وكلاء الاستراتيجيات يفحصون السوق الآن. سأنشر أفضل توصية صالحة لليوم، أو NO TRADE مع قائمة مراقبة."),
+    "tournament": ("Badr is running the strategy tournament on real history (a few minutes). The leaderboard will appear in Reports.",
+                   "بدر يشغّل بطولة الاستراتيجيات على البيانات التاريخية الحقيقية (بضع دقائق). الترتيب سيظهر في التقارير."),
     "scan": ("I've asked Sami (Scanner), Nora (Structure), the three strategy agents and Rami (Risk) to run a full cycle on live Binance data. Watch the office; you'll get a signal or a NO TRADE with reasons.",
              "طلبت من سامي (الماسح) ونورا (الهيكل) ووكلاء الاستراتيجيات الثلاثة ورامي (المخاطر) تشغيل دورة كاملة على بيانات Binance الحقيقية. تابع المكتب؛ ستصلك إشارة أو NO TRADE مع الأسباب."),
     "brief": ("I'm writing your brief now. It will appear in Reports in a moment.",

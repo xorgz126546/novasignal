@@ -33,22 +33,27 @@ def agent_week(db: Session, agent_id: str, since) -> dict:
         "failure_samples": [t.error[:160] for t in db.scalars(select(HQTask).where(HQTask.agent_id == agent_id, HQTask.status == "failed",
                                                                                    HQTask.created_at >= since).limit(3)) if t.error],
     }
-    if d.strategy:
-        outs = db.execute(select(Signal.theoretical_outcome, func.count()).where(Signal.strategy_id == d.strategy, Signal.created_at >= since)
+    if d.all_strategies:
+        outs = db.execute(select(Signal.theoretical_outcome, func.count()).where(Signal.strategy_id.in_(d.all_strategies), Signal.created_at >= since)
                           .group_by(Signal.theoretical_outcome)).all()
         f["signal_outcomes"] = {str(k): v for k, v in outs}
         rej = db.execute(select(HQDecision.reasons).where(HQDecision.stage == "strategy", HQDecision.created_at >= since).limit(200)).all()
-        mine = [r for (rs,) in rej for r in rs if r.startswith(d.strategy + ":")]
+        mine = [r for (rs,) in rej for r in rs if r.split(":", 1)[0] in d.all_strategies]
         top: dict[str, int] = {}
         for r in mine:
             key = r.split(":", 1)[1].strip()[:80]
             top[key] = top.get(key, 0) + 1
         f["top_reject_reasons"] = sorted(top.items(), key=lambda x: -x[1])[:3]
-        run = db.scalar(select(HQBacktestRun).where(HQBacktestRun.subject.startswith(f"strategy:{d.strategy}"))
-                        .order_by(HQBacktestRun.id.desc()).limit(1))
-        if run:
-            f["latest_gate"] = {"passed": run.passed, "trades": run.result.get("summary", {}).get("trades"),
-                                "expectancy_pct": run.result.get("summary", {}).get("expectancy_pct")}
+        gates = {}
+        for sid in d.all_strategies:
+            run = db.scalar(select(HQBacktestRun).where(HQBacktestRun.subject.startswith(f"strategy:{sid}@"))
+                            .order_by(HQBacktestRun.id.desc()).limit(1))
+            if run:
+                gates[sid] = {"passed": run.passed, "trades": run.result.get("summary", {}).get("trades"),
+                              "expectancy_pct": run.result.get("summary", {}).get("expectancy_pct")}
+        if gates:
+            f["gates"] = gates
+            f["latest_gate"] = gates.get(d.strategy) or next(iter(gates.values()))
     if agent_id in ("risk", "publisher", "manager"):
         aud = db.execute(select(HQDecision.audit_result, func.count()).where(HQDecision.stage == agent_id, HQDecision.created_at >= since,
                                                                             HQDecision.audit_result.is_not(None)).group_by(HQDecision.audit_result)).all()

@@ -121,4 +121,6 @@ class LiquiditySweep(Strategy):
         return Reject(self.id, "no sweep-and-reclaim of a prior 1H low")
 
 
-BUILTINS: dict[str, Strategy] = {s.id: s for s in (BreakoutRetest(), TrendPullback(), LiquiditySweep())}
+from .extra import EXTRA  # noqa: E402  (new strategies: squeeze, donchian, relative strength, oversold, range)
+
+BUILTINS: dict[str, Strategy] = {s.id: s for s in (BreakoutRetest(), TrendPullback(), LiquiditySweep(), *EXTRA)}

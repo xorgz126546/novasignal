@@ -96,12 +96,15 @@ function Controls() {
     setBusy(true); setMsg(null);
     try {
       const r = await api<any>(path, { method: "POST", json: body });
-      setMsg(`${label}: ${r.signals ? `${r.signals.length} signal(s)` : ""} ${r.no_trade?.length ? "NO TRADE — " + r.no_trade[0] : ""} ${r.status ?? ""}`.trim());
+      const pick = r.status === "picked" ? `⭐ ${r.symbol} (${r.strategy}, score ${r.score})` : r.status === "no_trade" ? `NO TRADE — watch: ${(r.watchlist ?? []).map((w: any) => w.symbol).join(", ") || "—"}` : "";
+      setMsg(`${label}: ${pick} ${r.signals ? `${r.signals.length} signal(s)` : ""} ${r.no_trade?.length ? "NO TRADE — " + r.no_trade[0] : ""} ${r.leaderboard ? `${r.leaderboard.length} strategies tested` : ""} ${r.status && !pick ? r.status : ""}`.trim());
     } catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
   };
   return (
     <div className="flex flex-wrap gap-2 items-center">
-      <button className="btn-primary" disabled={busy} onClick={() => run("/api/hq/cycle", t("run_cycle"))}>{t("run_cycle")}</button>
+      <button className="btn-primary" disabled={busy} onClick={() => run("/api/hq/daily-pick", t("best_pick"))}>{t("best_pick")}</button>
+      <button className="btn-ghost" disabled={busy} onClick={() => run("/api/hq/cycle", t("run_cycle"))}>{t("run_cycle")}</button>
+      <button className="btn-ghost" disabled={busy} onClick={() => run("/api/hq/tournament", t("tournament"))}>{t("tournament")}</button>
       <button className="btn-ghost" disabled={busy} onClick={() => run("/api/hq/audit", t("run_audit"))}>{t("run_audit")}</button>
       <button className="btn-ghost" disabled={busy} onClick={() => run("/api/hq/growth", t("run_growth"))}>{t("run_growth")}</button>
       <button className="btn-ghost" disabled={busy} onClick={() => run("/api/hq/brief", t("make_brief"))}>{t("make_brief")}</button>
@@ -349,11 +352,33 @@ function Drafts() {
   );
 }
 
+function Leaderboard() {
+  const { t } = useLang();
+  const { data } = useFetch<any[]>("/api/hq/leaderboard");
+  const tone: Record<string, string> = { A: "ok", B: "ok", C: "idle", D: "degraded", F: "error" };
+  return (
+    <div className="card card-pad lg:col-span-2">
+      <div className="label mb-2">{t("leaderboard")}</div>
+      <div className="overflow-x-auto">
+        <table className="table">
+          <thead><tr><th>Strategy</th><th>Agent</th><th className="text-right">Trades</th><th className="text-right">Win</th><th className="text-right">Net/trade</th><th>Grade</th></tr></thead>
+          <tbody>{(data ?? []).sort((a, b) => a.grade.localeCompare(b.grade)).map((r) => (
+            <tr key={r.strategy}><td dir="ltr">{r.name}</td><td>{r.agent}</td><td className="num text-right">{r.trades ?? 0}</td>
+              <td className="num text-right">{r.win_rate != null ? `${(r.win_rate * 100).toFixed(0)}%` : "—"}</td>
+              <td className="num text-right">{r.expectancy_pct != null ? `${r.expectancy_pct > 0 ? "+" : ""}${r.expectancy_pct.toFixed(2)}%` : "—"}</td>
+              <td><Badge tone={tone[r.grade]}>{`${r.grade} · ${r.label}`}</Badge></td></tr>))}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function Activity() {
   const dec = useFetch<any[]>("/api/hq/decisions?limit=60");
   const inc = useFetch<any[]>("/api/hq/incidents");
   return (
     <div className="grid lg:grid-cols-2 gap-4">
+      <Leaderboard />
       <div className="card card-pad">
         <div className="label mb-2">Signals & NO TRADE decisions</div>
         <ul className="space-y-1.5 text-xs max-h-[60vh] overflow-y-auto">

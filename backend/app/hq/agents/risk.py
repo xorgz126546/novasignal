@@ -36,10 +36,28 @@ def btc_filter(btc: Context | None) -> tuple[bool, str]:
     return True, "BTC market filter: OK"
 
 
+DECOUPLED_MIN_OUTPERFORMANCE = 5.0
+
+
+def is_decoupled(ctx: Context, btc: Context | None) -> bool:
+    """A 'decoupled leader': clearly outperforming BTC over 7 days AND in its own uptrend."""
+    if btc is None or ctx.symbol == "BTCUSDT":
+        return False
+    own, b = ctx.features.get("ret_168_1h"), btc.features.get("ret_168_1h")
+    f = ctx.features
+    return (own is not None and b is not None and own - b >= DECOUPLED_MIN_OUTPERFORMANCE
+            and f.get("close_4h", 0) > f.get("ema50_4h", float("inf")))
+
+
 def assess(setup: Setup, ctx: Context, risk: RiskConfig, btc_ok: tuple[bool, str], open_signals: int,
-           open_symbols: set[str], signals_today: int) -> RiskVerdict:
+           open_symbols: set[str], signals_today: int, decoupled: bool = False) -> RiskVerdict:
     reasons: list[str] = [btc_ok[1]]
     veto = not btc_ok[0]
+    risk_pct, max_pos = risk.risk_per_trade_pct, risk.max_position_pct
+    if veto and decoupled:  # halve BOTH the risk budget and the position cap, so the reduction always applies
+        veto, risk_pct, max_pos = False, risk.risk_per_trade_pct / 2, risk.max_position_pct / 2
+        reasons.append("BTC risk-off, but this coin is a decoupled leader (beats BTC by 5%+ over 7 days, own uptrend): "
+                       "allowed at HALF risk")
     limits = [
         (setup.symbol in open_symbols, "exposure: symbol already has an open signal"),
         (open_signals >= risk.max_open_signals, f"exposure: {open_signals}/{risk.max_open_signals} signals already open"),
@@ -51,7 +69,7 @@ def assess(setup: Setup, ctx: Context, risk: RiskConfig, btc_ok: tuple[bool, str
             reasons.append(why)
     rm = RiskManager().run(dict(
         symbol=setup.symbol, entry=setup.entry, stop_loss=setup.stop, take_profit=setup.take_profit,
-        equity_usdt=REFERENCE_EQUITY, risk_per_trade_pct=risk.risk_per_trade_pct, max_position_pct=risk.max_position_pct,
+        equity_usdt=REFERENCE_EQUITY, risk_per_trade_pct=risk_pct, max_position_pct=max_pos,
         fee_rate_pct=risk.fee_rate_pct, slippage_pct=risk.slippage_pct, min_risk_reward=risk.min_risk_reward,
         min_stop_distance_pct=risk.min_stop_distance_pct, max_stop_distance_pct=risk.max_stop_distance_pct,
         step_size=ctx.step_size, min_notional=ctx.min_notional, open_user_trades=0, max_open_user_trades=1,

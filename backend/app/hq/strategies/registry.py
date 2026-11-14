@@ -20,7 +20,7 @@ class ActiveStrategy:
 
 
 def strategy_agents() -> dict[str, str]:
-    return {d.strategy: d.id for d in load_defs().values() if d.strategy}
+    return {sid: d.id for d in load_defs().values() for sid in d.all_strategies}
 
 
 def active_strategies(db: Session) -> list[ActiveStrategy]:

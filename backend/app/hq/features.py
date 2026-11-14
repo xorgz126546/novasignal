@@ -65,8 +65,32 @@ def tf_features(cs: list[Candle], tf: str) -> tuple[dict[str, float], dict]:
         f[f"adx_{tf}"] = adx
     up, mid, low = ta.bollinger(c, 20, 2)
     if up[-1] is not None:
-        f[f"bb_upper_{tf}"], f[f"bb_lower_{tf}"] = up[-1], low[-1]
+        f[f"bb_upper_{tf}"], f[f"bb_lower_{tf}"], f[f"bb_mid_{tf}"] = up[-1], low[-1], mid[-1]
         f[f"bb_pos_{tf}"] = (c[-1] - low[-1]) / (up[-1] - low[-1]) if up[-1] > low[-1] else 0.5
+        widths = [(u - lw) / m if u is not None and m else None for u, m, lw in zip(up, mid, low)]
+
+        def pctile(j: int) -> float | None:
+            hist = [w for w in widths[max(0, j - 120):j] if w is not None]
+            return sum(1 for w in hist if w < widths[j]) / len(hist) if len(hist) >= 40 and widths[j] is not None else None
+        f[f"bb_width_{tf}"] = widths[-1]
+        p_now = pctile(len(widths) - 1)
+        if p_now is not None:
+            f[f"bb_width_pctile_{tf}"] = p_now
+        prev = [pctile(j) for j in range(len(widths) - 7, len(widths) - 1)]
+        prev = [x for x in prev if x is not None]
+        if prev:
+            f[f"squeeze_recent_{tf}"] = float(min(prev) <= 0.2)
+    if len(h) > 21:
+        f[f"donchian_high20_{tf}"] = max(h[-21:-1])
+        f[f"donchian_low20_{tf}"] = min(lo[-21:-1])
+    rs = ta.rsi(c, 14)
+    last6 = [x for x in rs[-6:] if x is not None]
+    if last6:
+        f[f"rsi_min6_{tf}"] = min(last6)
+    if len(c) > 168:
+        f[f"ret_168_{tf}"] = (c[-1] - c[-169]) / c[-169] * 100
+    if len(c) > 24:
+        f[f"ret_24_{tf}"] = (c[-1] - c[-25]) / c[-25] * 100
     base = v[-23:-3]
     if base and statistics.fmean(base) > 0:
         f[f"vol_rel_{tf}"] = statistics.fmean(v[-3:]) / statistics.fmean(base)
@@ -98,4 +122,5 @@ def build_features(candles: dict[str, list[Candle]]) -> tuple[dict[str, float], 
 FEATURE_NAMES = sorted({f"{name}_{tf}" for tf in TIMEFRAMES for name in (
     "close", "ema9", "ema21", "ema50", "ema200", "rsi", "rsi_change3", "macd_hist", "atr", "atr_pct", "adx",
     "bb_upper", "bb_lower", "bb_pos", "vol_rel", "dist_ema21_pct", "bias", "bos_up_recent", "choch_up_recent",
-    "choch_down_recent")})
+    "choch_down_recent", "bb_mid", "bb_width", "bb_width_pctile", "squeeze_recent", "donchian_high20", "donchian_low20",
+    "rsi_min6", "ret_168", "ret_24")})

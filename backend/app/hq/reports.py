@@ -59,13 +59,15 @@ def agent_numbers(db: Session, agent_id: str, since: datetime) -> dict:
     n = {"tasks": dict(tasks), "xp_gained": db.scalar(select(func.coalesce(func.sum(HQXPEvent.xp), 0)).where(
         HQXPEvent.agent_id == agent_id, HQXPEvent.at >= since)) or 0}
     d = load_defs()[agent_id]
-    if d.strategy:
+    if d.all_strategies:
+        sids = d.all_strategies
+        n["strategies"] = sids
         n["signals_published"] = db.scalar(select(func.count()).select_from(Signal).where(
-            Signal.source == "hq", Signal.strategy_id == d.strategy, Signal.created_at >= since)) or 0
+            Signal.source == "hq", Signal.strategy_id.in_(sids), Signal.created_at >= since)) or 0
         n["tp_hits_all_time"] = db.scalar(select(func.count()).select_from(Signal).where(
-            Signal.strategy_id == d.strategy, Signal.theoretical_outcome == "TARGET_HIT")) or 0
+            Signal.strategy_id.in_(sids), Signal.theoretical_outcome == "TARGET_HIT")) or 0
         n["sl_hits_all_time"] = db.scalar(select(func.count()).select_from(Signal).where(
-            Signal.strategy_id == d.strategy, Signal.theoretical_outcome == "STOP_LOSS_HIT")) or 0
+            Signal.strategy_id.in_(sids), Signal.theoretical_outcome == "STOP_LOSS_HIT")) or 0
     if agent_id == "risk":
         n["vetoes"] = db.scalar(select(func.count()).select_from(HQDecision).where(
             HQDecision.stage == "risk", HQDecision.created_at >= since)) or 0

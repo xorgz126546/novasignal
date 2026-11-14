@@ -30,30 +30,33 @@ agents:
     color: "#a78bfa"
   - id: strat_breakout
     name: {en: "Bilal — Breakout+Retest", ar: "بلال — الاختراق وإعادة الاختبار"}
-    role: "Strategy plug-in: breakout of a key level followed by a successful retest."
+    role: "Breakout desk: breakout+retest, volatility-squeeze breakout and 4H Donchian breakout."
     room: strategy_lab
     model: routine
     tools: {strategy_eval: 1}
     schedule: cycle
     strategy: breakout_retest
+    strategies: [breakout_retest, squeeze_breakout, donchian_breakout]
     color: "#f59e0b"
   - id: strat_pullback
     name: {en: "Tara — Trend Pullback", ar: "تارا — ارتداد الاتجاه"}
-    role: "Strategy plug-in: buy pullbacks to dynamic support inside an established uptrend."
+    role: "Trend desk: pullbacks in uptrends and relative-strength leaders that outperform BTC."
     room: strategy_lab
     model: routine
     tools: {strategy_eval: 1}
     schedule: cycle
     strategy: trend_pullback
+    strategies: [trend_pullback, relative_strength]
     color: "#22c55e"
   - id: strat_sweep
     name: {en: "Layla — Liquidity Sweep", ar: "ليلى — كنس السيولة"}
-    role: "Strategy plug-in: sweep of a prior low then bullish change of character."
+    role: "Reversal desk: liquidity sweeps, oversold bounces and range-support bounces."
     room: strategy_lab
     model: routine
     tools: {strategy_eval: 1}
     schedule: cycle
     strategy: liquidity_sweep
+    strategies: [liquidity_sweep, oversold_bounce, range_support]
     color: "#ec4899"
   - id: risk
     name: {en: "Rami — Risk Manager", ar: "رامي — مدير المخاطر"}

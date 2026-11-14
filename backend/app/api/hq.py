@@ -385,3 +385,30 @@ async def library(admin: User = Depends(require_admin), db: Session = Depends(ge
 
     r = await run_library(db)
     return {"report_id": r.id, "approval_id": r.data.get("approval_id")}
+
+
+@router.post("/daily-pick")
+async def daily_pick(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from ..hq.loops.daily_pick import run_daily_pick
+    from ..hq.notify import notify_owner
+    from ..market.binance import get_client
+    from ..telegram.bot import notify
+
+    audit(db, f"user:{admin.id}", "hq_daily_pick")
+    return await run_daily_pick(db, get_client(), notify, notify_owner)
+
+
+@router.post("/tournament")
+async def tournament(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from ..hq.loops.daily_pick import run_tournament
+    from ..market.binance import get_client
+
+    rep = await run_tournament(db, get_client())
+    return {"report_id": rep.id, "leaderboard": rep.data["leaderboard"]}
+
+
+@router.get("/leaderboard")
+def get_leaderboard(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from ..hq.loops.daily_pick import leaderboard
+
+    return leaderboard(db)

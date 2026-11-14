@@ -61,6 +61,26 @@ Every candidate becomes a persisted `SIGNAL` or `NO_TRADE` with its stage and re
 
 **Demo:** **Inject test failure** (owner-only) forces the Binance client to fail N calls, so the real detection → diagnosis → report path runs.
 
+## Daily best pick + strategy tournament (`hq/loops/daily_pick.py`)
+
+**8 strategies** live across the three strategy agents:
+
+| Agent | Strategies |
+|---|---|
+| Bilal | Breakout+Retest, Volatility Squeeze Breakout, 4H Donchian Breakout |
+| Tara | Trend Pullback, Relative-Strength Leader (coins beating BTC by 5%+ over 7 days) |
+| Layla | Liquidity Sweep, Oversold Bounce, Range-Support Bounce |
+
+- **Tournament** (Sundays 05:00, and before the first pick): every strategy runs the walk-forward gate on real
+  history. Each gets a grade: **A** passed · **B** positive, not proven · **C** too few trades · **D** slightly negative · **F** clearly losing.
+- **Daily best pick** (09:00 Africa/Algiers, `HQ_DAILY_PICK_TIME`):
+  - All strategies scan a wider universe (25 markets).
+  - Every setup must still pass the hard rules and the Risk veto.
+  - The best setup by score × evidence factor (A ×1.15 … D ×0.85; F excluded) is published as **⭐ DAILY BEST PICK**, with its evidence grade shown honestly.
+  - If nothing valid exists, you get NO TRADE plus a watchlist, clearly marked as not a recommendation.
+- **BTC risk-off:** only *decoupled leaders* (beating BTC by 5%+ over 7 days, in their own 4H uptrend) may pass, and only at **half risk and half position size**.
+- This runs even when `HQ_ENABLED=false` (set `HQ_DAILY_PICK=false` to stop it).
+
 ## Reports (`hq/reports.py`)
 
 - **Per-agent daily report:** numbers from the database, problems, proposed solutions, and what the agent needs from you.

@@ -26,7 +26,15 @@ class AgentDef(BaseModel):
     tools: dict[str, int] = {}
     schedule: str = "manual"
     color: str = "#a1a1aa"
-    strategy: str | None = None
+    strategy: str | None = None  # primary strategy (kept for compatibility)
+    strategies: list[str] = []  # full strategy portfolio owned by this agent
+
+    @property
+    def all_strategies(self) -> list[str]:
+        out = list(self.strategies)
+        if self.strategy and self.strategy not in out:
+            out.insert(0, self.strategy)
+        return out
 
     @field_validator("id")
     @classmethod
@@ -99,7 +107,7 @@ def agent_view(d: AgentDef, row: HQAgent | None) -> dict:
     nxt = LEVEL_THRESHOLDS[lvl] if lvl < 10 else None
     return {
         "id": d.id, "name": d.name, "role": d.role, "room": d.room, "model": d.model_name(), "color": d.color,
-        "schedule": d.schedule, "strategy": d.strategy,
+        "schedule": d.schedule, "strategy": d.strategy, "strategies": d.all_strategies,
         "tools": {t: {"min_level": m, "unlocked": lvl >= m} for t, m in d.tools.items()},
         "level": lvl, "xp": xp, "next_level_xp": nxt,
         "status": row.status if row else "idle", "current_task": row.current_task if row else "",
