@@ -56,9 +56,10 @@ const D: Record<string, { en: string; ar: string }> = {
   idle: { en: "idle", ar: "متاح" },
   blocked: { en: "blocked", ar: "متوقف" },
   hq_off: {
-    en: "HQ_ENABLED is off: agents only work when you ask. Turn it on in Render → Environment for the schedule.",
-    ar: "HQ_ENABLED غير مفعّل: الوكلاء يعملون فقط عند طلبك. فعّله من Render ← Environment لتشغيل الجدول التلقائي.",
+    en: "Daily best pick is ON (09:00, 13:00, 17:00, 21:00). The full schedule (cycles every 30 min, 08:00 brief, auditor, weekly Library) needs HQ_ENABLED=true in Render → Environment.",
+    ar: "أفضل توصية يومية مفعّلة (09:00، 13:00، 17:00، 21:00). الجدول الكامل (دورة كل 30 دقيقة، موجز 08:00، المدقق، المكتبة الأسبوعية) يحتاج HQ_ENABLED=true في Render ← Environment.",
   },
+
 };
 
 type Ctx = { lang: Lang; setLang: (l: Lang) => void; t: (k: string) => string; dir: "ltr" | "rtl" };
