@@ -44,6 +44,9 @@ async def lifespan(app: FastAPI):
     _bootstrap_admin()
     if get_settings().enable_scheduler:
         scheduler.start()
+    from .hq import scheduler as hq_scheduler
+
+    hq_scheduler.start()  # no-op unless HQ_ENABLED=true
     try:
         from .telegram.bot import auto_register_webhook
 
@@ -51,6 +54,7 @@ async def lifespan(app: FastAPI):
     except Exception:
         log.exception("telegram auto-registration failed")
     yield
+    await hq_scheduler.stop()
     await scheduler.stop()
     from .market.binance import _client
 

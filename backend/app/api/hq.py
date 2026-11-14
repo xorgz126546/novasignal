@@ -288,3 +288,29 @@ def backtests(admin: User = Depends(require_admin), db: Session = Depends(get_db
     return [{"id": r.id, "created_at": r.created_at, "subject": r.subject, "passed": r.passed,
              "summary": r.result.get("summary"), "reasons": r.result.get("reasons"), "proposal_id": r.proposal_id}
             for r in db.scalars(select(HQBacktestRun).order_by(HQBacktestRun.id.desc()).limit(100))]
+
+
+@router.post("/brief")
+async def make_brief(send: bool = False, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from ..hq.reports import build_brief
+
+    r = await build_brief(db, send=send)
+    return {"id": r.id, "title": r.title, "body_md": r.body_md, "sent_telegram": r.sent_telegram}
+
+
+@router.post("/reports/agents")
+async def make_agent_reports(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from ..hq.reports import write_all_agent_reports
+
+    return [{"id": r.id, "agent_id": r.agent_id, "title": r.title} for r in await write_all_agent_reports(db)]
+
+
+@router.get("/status")
+def hq_status(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from ..hq.scheduler import _state, jobs
+
+    s = get_settings()
+    return {"hq_enabled": s.hq_enabled, "timezone": s.hq_timezone, "jobs": [{"name": n, "schedule": sc, "last_run": _state(db).get(n)}
+                                                                         for n, sc in jobs()],
+            "llm": llm.budget_status(db), "telegram_owner_chat": bool(s.telegram_chat_id),
+            "github_token": bool(s.github_token), "live_subscribers": bus.subscriber_count()}

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hmac
+import html
 import logging
 import re
 from datetime import timedelta
@@ -224,6 +225,14 @@ async def handle_update(db: Session, update: dict, client: TelegramClient) -> No
                                            f"Current: {prefs or 'defaults (all on)'}\n{s.public_base_url}/settings")
     elif cmd in ("/entered", "/skipped", "/closed"):
         await client.send_message(chat_id, "Use the buttons under a signal (/signals) to report ENTERED, SKIPPED or CLOSED.")
+    elif not text.startswith("/") and user.role == "admin":
+        # The owner can talk to the HQ Manager straight from Telegram.
+        from ..hq.agents.manager import handle_chat
+        from ..hq.registry import ensure_agents
+
+        ensure_agents(db)
+        reply = await handle_chat(db, text)
+        await client.send_message(chat_id, html.escape(reply.text)[:3900])
     else:
         await client.send_message(chat_id, "Commands: /signals /performance /agents /dashboard /settings")
 
