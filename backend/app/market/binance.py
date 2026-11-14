@@ -147,6 +147,7 @@ class BinanceClient:
         self.last_ok_at: datetime | None = None
         self.last_error: str | None = None
         self._symbols: dict[str, SymbolInfo] = {}
+        self.inject_failures = 0  # owner-triggered fault injection: next N requests fail (repair-loop demo)
         self._symbols_at: float = 0.0
 
     async def close(self) -> None:
@@ -155,6 +156,10 @@ class BinanceClient:
     async def _get(self, path: str, params: dict | None = None):
         if path not in _ALLOWED_PATHS:  # defence in depth: only public read-only endpoints
             raise MarketDataError(f"endpoint not allowed: {path}")
+        if self.inject_failures > 0:
+            self.inject_failures -= 1
+            self.last_error = "injected failure (owner fault-injection test)"
+            raise MarketDataError(self.last_error)
         if time.monotonic() < self.banned_until:
             raise MarketDataError("Binance rate-limit backoff in effect")
         weight = _WEIGHTS.get(path, 1)

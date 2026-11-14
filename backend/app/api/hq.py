@@ -314,3 +314,47 @@ def hq_status(admin: User = Depends(require_admin), db: Session = Depends(get_db
                                                                          for n, sc in jobs()],
             "llm": llm.budget_status(db), "telegram_owner_chat": bool(s.telegram_chat_id),
             "github_token": bool(s.github_token), "live_subscribers": bus.subscriber_count()}
+
+
+# ---------------- upgrade loop / repair loop ----------------
+class LearnIn(BaseModel):
+    topic: str = Field(min_length=3, max_length=120)
+
+
+@router.post("/scout")
+async def scout(body: LearnIn, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from ..hq.loops.upgrade import scout_run
+
+    return {"knowledge_ids": await scout_run(db, topic=body.topic)}
+
+
+@router.get("/provenance.md", response_class=PlainTextResponse)
+def provenance(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from ..hq.loops.upgrade import provenance_md
+
+    return PlainTextResponse(provenance_md(db), media_type="text/markdown")
+
+
+class InjectIn(BaseModel):
+    calls: int = Field(20, ge=1, le=200)
+
+
+@router.post("/inject-failure")
+async def inject_failure(body: InjectIn, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Owner-only fault injection: the next N Binance requests fail, so the real detection → repair path runs."""
+    from ..hq.agents.auditor import run_auditor
+    from ..hq.loops.repair import handle_new_incidents
+    from ..hq.notify import notify_owner
+    from ..market.binance import MarketDataError, get_client
+
+    client = get_client()
+    client.inject_failures = body.calls
+    audit(db, f"user:{admin.id}", "hq_inject_failure", calls=body.calls)
+    try:
+        await client.price("BTCUSDT")
+    except MarketDataError:
+        pass
+    r = await run_auditor(db, client, notify_owner)
+    await handle_new_incidents(db, r["incidents"])
+    client.inject_failures = 0
+    return {"incidents": r["incidents"], "note": "Injection cleared; the incident auto-resolves on the next healthy check."}
