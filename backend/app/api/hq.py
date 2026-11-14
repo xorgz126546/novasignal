@@ -257,3 +257,34 @@ async def run_cycle(admin: User = Depends(require_admin), db: Session = Depends(
 
     audit(db, f"user:{admin.id}", "hq_cycle")
     return await run_hq_cycle(db, get_client(), notify)
+
+
+@router.post("/audit")
+async def run_audit(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from ..hq.agents.auditor import run_auditor
+    from ..hq.notify import notify_owner
+    from ..market.binance import get_client
+
+    return await run_auditor(db, get_client(), notify_owner)
+
+
+@router.post("/backtest/{strategy_id}")
+async def run_backtest(strategy_id: str, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from ..hq.agents.backtester import run_gate
+    from ..hq.strategies.registry import get
+    from ..market.binance import get_client
+
+    act = get(strategy_id, db)
+    if act is None:
+        raise HTTPException(404, "unknown strategy")
+    run = await run_gate(db, get_client(), act.strategy, act.params, f"strategy:{strategy_id}@manual")
+    return {"id": run.id, "passed": run.passed, "result": run.result}
+
+
+@router.get("/backtests")
+def backtests(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from ..hq.models import HQBacktestRun
+
+    return [{"id": r.id, "created_at": r.created_at, "subject": r.subject, "passed": r.passed,
+             "summary": r.result.get("summary"), "reasons": r.result.get("reasons"), "proposal_id": r.proposal_id}
+            for r in db.scalars(select(HQBacktestRun).order_by(HQBacktestRun.id.desc()).limit(100))]
