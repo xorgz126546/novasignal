@@ -34,6 +34,16 @@ services:
         sync: false       # Render asks you for this value when you create the Blueprint
       - key: TELEGRAM_WEBHOOK_SECRET
         generateValue: true
+      - key: HQ_ENABLED
+        value: "false"     # switch to "true" after adding the keys below
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: HQ_LLM_DAILY_BUDGET_USD
+        value: "1.0"
       - key: BOOTSTRAP_ADMIN_EMAIL
         sync: false
       - key: BOOTSTRAP_ADMIN_PASSWORD

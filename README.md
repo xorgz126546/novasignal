@@ -19,7 +19,7 @@ This is an independent project with no connection to any other company.
 | The 11 agents (each with input/output schema, validation, logging, error handling, tests) | `backend/app/agents/` |
 | Telegram bot (webhook with secret validation or polling; ENTERED/SKIPPED/CLOSED flows) | `backend/app/telegram/` |
 | React + TypeScript + Tailwind + Recharts dashboard, landing page, admin panel | `frontend/` |
-| Tests (71 backend, passing on SQLite **and** PostgreSQL 16; frontend unit tests) | `backend/tests`, `frontend/src/**/*.test.ts` |
+| Tests (135 backend, passing on SQLite **and** PostgreSQL 16; frontend unit tests) | `backend/tests`, `frontend/src/**/*.test.ts` |
 | Docs: architecture, agents, confidence model, install, deploy, security, validation plan, 30-day report template | `docs/` |
 | Environment template (placeholders only) | `.env.example` |
 
@@ -31,7 +31,7 @@ cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 cp ../.env.example .env            # edit SECRET_KEY at minimum
-python -m pytest -q                # 71 tests
+python -m pytest -q                # 135 tests
 uvicorn app.main:app --reload      # http://localhost:8000/api/docs
 
 # Frontend (second terminal)
@@ -43,6 +43,20 @@ npm run dev                        # http://localhost:5173  (proxies /api to :80
 Register the first account; it becomes the **admin**. Open **Admin → Run scan now** to run a full live cycle
 against Binance public data. To scan automatically, set `ENABLE_SCHEDULER=true`. To use Telegram, see
 `docs/DEPLOYMENT.md#telegram`.
+
+## CRYPTONEX HQ — the 15-agent company
+
+You chat with one agent (the Manager). She delegates to 14 specialists, and you watch them work in a live pixel-art office
+(`/app/hq`). The agents run four loops:
+
+- **Trading**: produces a signal or NO TRADE, with reasons.
+- **Growth**: writes content drafts.
+- **GitHub Upgrade**: ideas must pass a walk-forward backtest gate.
+- **Repair**: opens fix branches with tests as draft PRs.
+
+You also get a morning brief at 08:00, weekly Library reports, and levels earned only from verified results.
+**Nothing goes live without your approval**, and every change is versioned with one-click rollback.
+Full details: **[docs/HQ.md](docs/HQ.md)**.
 
 ## Use it on your phone
 
