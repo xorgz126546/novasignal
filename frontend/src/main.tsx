@@ -5,6 +5,8 @@ import "./index.css";
 import Layout from "./components/Layout";
 import { Loading } from "./components/ui";
 import { AuthProvider, useAuth } from "./lib/auth";
+import { LangProvider } from "./lib/i18n";
+import HQPage from "./hq/HQPage";
 import Admin from "./pages/Admin";
 import Agents from "./pages/Agents";
 import Analytics from "./pages/Analytics";
@@ -27,6 +29,7 @@ function Protected({ children, admin = false }: { children: React.ReactNode; adm
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
+    <LangProvider>
     <AuthProvider>
       <BrowserRouter>
         <Routes>
@@ -43,12 +46,14 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="validation" element={<Validation />} />
             <Route path="settings" element={<Settings />} />
             <Route path="admin" element={<Protected admin><Admin /></Protected>} />
+            <Route path="hq" element={<Protected admin><HQPage /></Protected>} />
           </Route>
           <Route path="/signals/:id" element={<RedirectSignal />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>
+    </LangProvider>
   </React.StrictMode>,
 );
 
