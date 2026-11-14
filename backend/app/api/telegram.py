@@ -43,15 +43,12 @@ async def webhook(request: Request, db: Session = Depends(get_db),
 
 @router.post("/setup-webhook")
 async def setup_webhook(public_api_url: str, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    s = get_settings()
-    client = get_client()
-    if client is None or not s.telegram_webhook_secret:
-        raise HTTPException(503, "TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET must both be configured")
+    from ..telegram.bot import register_webhook
+
     if not public_api_url.startswith("https://"):
         raise HTTPException(400, "Telegram requires an https URL")
     try:
-        me = await client.get_me()
-        await client.set_webhook(public_api_url.rstrip("/") + "/api/telegram/webhook", s.telegram_webhook_secret)
+        me = await register_webhook(public_api_url)
     except TelegramError as e:
         raise HTTPException(502, str(e))
     audit(db, f"user:{admin.id}", "telegram_webhook_set", url=public_api_url)

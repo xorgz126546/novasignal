@@ -17,8 +17,15 @@ router = APIRouter(prefix="/api", tags=["public"])
 
 @router.get("/health")
 def health(db: Session = Depends(get_db)):
+    import os
+
+    from ..models import ServiceState
+
     db.execute(text("SELECT 1"))
-    return {"status": "ok", "app": get_settings().app_name}
+    tg = db.get(ServiceState, "telegram")
+    return {"status": "ok", "app": get_settings().app_name,
+            "version": os.environ.get("RENDER_GIT_COMMIT", "")[:7] or None,
+            "telegram": "not_configured" if not get_settings().telegram_configured else (tg.status if tg else "pending")}
 
 
 @router.get("/public/methodology")

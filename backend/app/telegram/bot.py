@@ -40,9 +40,48 @@ def set_client(c: TelegramClient | None) -> None:
     _client = c
 
 
-def verify_secret(header_value: str | None) -> bool:
+_SAFE_SECRET = re.compile(r"[A-Za-z0-9_-]{1,256}")
+
+
+def webhook_secret_token() -> str:
+    """Telegram only accepts [A-Za-z0-9_-] in secret_token. Hosting providers often generate base64
+    secrets (with + / =), so those are mapped deterministically to a SHA-256 hex digest."""
+    import hashlib
+
     secret = get_settings().telegram_webhook_secret
+    if not secret:
+        return ""
+    return secret if _SAFE_SECRET.fullmatch(secret) else hashlib.sha256(secret.encode()).hexdigest()
+
+
+def verify_secret(header_value: str | None) -> bool:
+    secret = webhook_secret_token()
     return bool(secret) and header_value is not None and hmac.compare_digest(secret, header_value)
+
+
+async def register_webhook(public_url: str) -> dict:
+    """Register {public_url}/api/telegram/webhook with Telegram. Returns getMe info."""
+    client = get_client()
+    if client is None or not webhook_secret_token():
+        raise TelegramError("TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET must both be configured")
+    me = await client.get_me()
+    await client.set_webhook(public_url.rstrip("/") + "/api/telegram/webhook", webhook_secret_token())
+    return me
+
+
+async def auto_register_webhook() -> None:
+    """At startup on a public HTTPS deployment, register the webhook automatically (no manual step)."""
+    s = get_settings()
+    if not (s.telegram_configured and s.telegram_webhook_secret and s.public_base_url.startswith("https://")):
+        return
+    with SessionLocal() as db:
+        try:
+            me = await register_webhook(s.public_base_url)
+            log.info("telegram webhook registered for @%s", me.get("username"))
+            set_service_state(db, "telegram", ok=True)
+        except TelegramError as e:
+            log.error("telegram webhook registration failed: %s", e)
+            set_service_state(db, "telegram", ok=False, error=f"webhook registration failed: {e}")
 
 
 def _session(db: Session, chat_id: str) -> TelegramSession:

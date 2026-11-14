@@ -260,3 +260,33 @@ def test_postgres_url_normalized():
     from app.config import Settings
     assert Settings(database_url="postgres://u:p@h/db").database_url == "postgresql+psycopg://u:p@h/db"
     assert Settings(database_url="sqlite:///x.db").database_url == "sqlite:///x.db"
+
+
+def test_base64_webhook_secret_is_made_telegram_safe(client, tg, monkeypatch):
+    """Render's generateValue yields base64 (+ / =), which Telegram rejects in secret_token."""
+    import hashlib
+    import re
+
+    from app.config import get_settings
+    raw = "kZ3+8vQ/Ab9=="
+    monkeypatch.setattr(get_settings(), "telegram_webhook_secret", raw)
+    token = bot.webhook_secret_token()
+    assert re.fullmatch(r"[A-Za-z0-9_-]+", token) and token == hashlib.sha256(raw.encode()).hexdigest()
+    assert tg_post(client, msg("/start"), secret=raw).status_code == 401  # raw value is not what Telegram sends
+    assert tg_post(client, msg("/start"), secret=token).status_code == 200
+
+
+async def test_auto_register_webhook_at_startup(tg, monkeypatch, db):
+    from app.config import get_settings
+    from app.models import ServiceState
+    monkeypatch.setattr(get_settings(), "telegram_webhook_secret", "abc+/=")
+    monkeypatch.setattr(get_settings(), "public_base_url", "https://cryptonex.example.com")
+    await bot.auto_register_webhook()
+    calls = {m: b for m, b in tg.calls}
+    assert calls["setWebhook"]["url"] == "https://cryptonex.example.com/api/telegram/webhook"
+    assert calls["setWebhook"]["secret_token"] == bot.webhook_secret_token()
+    assert db.get(ServiceState, "telegram").status == "ok"
+    tg.calls.clear()
+    monkeypatch.setattr(get_settings(), "public_base_url", "http://localhost:5173")
+    await bot.auto_register_webhook()  # never registers a non-HTTPS URL
+    assert tg.calls == []
