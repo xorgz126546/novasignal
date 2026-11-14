@@ -1,0 +1,14 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+sqlalchemy>=2.0
+pydantic>=2.7
+pydantic-settings>=2.3
+pydantic[email]>=2.7
+httpx>=0.27
+python-jose[cryptography]>=3.3
+bcrypt>=4.1
+# PostgreSQL driver (production). SQLite is used automatically for local dev/tests.
+psycopg[binary]>=3.2
+anthropic>=1.0  # optional: LLM narrative for the Chief agent (only used if ANTHROPIC_API_KEY is set)
+pyyaml>=6.0
+tzdata>=2024.1
