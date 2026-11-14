@@ -24,8 +24,8 @@ def request(db: Session, kind: str, title: str, summary: str, payload: dict, age
             ref: str | None = None) -> HQApproval:
     if kind not in KINDS:
         raise ApprovalError(f"unknown approval kind {kind}")
-    if kind in ("config", "rule_strategy", "prompt", "skills") and "version_id" not in payload:
-        raise ApprovalError("config-type approvals must reference an inactive candidate version")
+    if kind in ("config", "rule_strategy", "prompt", "skills") and "version_id" not in payload and not payload.get("version_ids"):
+        raise ApprovalError("config-type approvals must reference inactive candidate version(s)")
     if ref:
         existing = db.scalar(select(HQApproval).where(HQApproval.ref == ref))
         if existing:
@@ -52,7 +52,8 @@ def approve(db: Session, approval_id: int, actor: str) -> HQApproval:
     if a.status != "pending":
         raise ApprovalError(f"already {a.status}")
     if a.kind in ("config", "rule_strategy", "prompt", "skills"):
-        versions.activate_version(db, a.payload["version_id"], a.id)
+        for vid in a.payload.get("version_ids") or [a.payload["version_id"]]:
+            versions.activate_version(db, vid, a.id)
     elif a.kind == "content":
         d = db.get(HQDraft, a.payload.get("draft_id"))
         if d:

@@ -377,3 +377,11 @@ def draft_card(did: int, admin: User = Depends(require_admin), db: Session = Dep
     if not d or d.kind != "signal_card":
         raise HTTPException(404)
     return Response(d.body, media_type="image/svg+xml", headers={"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'"})
+
+
+@router.post("/library")
+async def library(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from ..hq.loops.library import run_library
+
+    r = await run_library(db)
+    return {"report_id": r.id, "approval_id": r.data.get("approval_id")}
