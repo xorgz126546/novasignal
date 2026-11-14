@@ -32,8 +32,11 @@ def configure(url: str) -> None:
 
 def init_db() -> None:
     from . import models  # noqa: F401  (register models)
+    from .hq import models as hq_models  # noqa: F401
+    from .migrations import run_migrations
 
     Base.metadata.create_all(bind=engine)
+    run_migrations(engine)
 
 
 def get_db() -> Iterator[Session]:

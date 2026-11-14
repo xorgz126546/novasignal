@@ -10,3 +10,5 @@ bcrypt>=4.1
 # PostgreSQL driver (production). SQLite is used automatically for local dev/tests.
 psycopg[binary]>=3.2
 anthropic>=1.0  # optional: LLM narrative for the Chief agent (only used if ANTHROPIC_API_KEY is set)
+pyyaml>=6.0
+tzdata>=2024.1

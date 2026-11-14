@@ -184,6 +184,12 @@ class Signal(Base):
     theoretical_exit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     theoretical_return_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     theoretical_closed_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
+    # --- CRYPTONEX HQ additions (nullable; classic signals leave them empty) ---
+    source: Mapped[str | None] = mapped_column(String(16), nullable=True)  # classic | hq
+    strategy_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    invalidation_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    risk_pct: Mapped[float | None] = mapped_column(Float, nullable=True)  # % of equity risked if SL is hit
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)  # Publisher score 0-100
 
     events: Mapped[list["SignalEvent"]] = relationship(back_populates="signal", order_by="SignalEvent.at")
     paper_trade: Mapped["PaperTrade | None"] = relationship(back_populates="signal", uselist=False)

@@ -42,6 +42,19 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""  # optional LLM narrative for the Chief agent
     anthropic_model: str = "claude-opus-5-5"
 
+    # --- CRYPTONEX HQ (agent company) ---
+    hq_enabled: bool = False  # master switch for HQ scheduled jobs (API/UI work regardless)
+    telegram_chat_id: str = ""  # owner's chat for briefs, reports and critical alerts
+    github_token: str = ""  # fine-grained, this repo only (contents + PRs) — Scout reads, Engineer opens draft PRs
+    github_repo: str = "xorgz126546/novasignal"
+    hq_llm_daily_budget_usd: float = 1.0
+    hq_model_routine: str = "claude-haiku-5-5"
+    hq_model_senior: str = "claude-opus-5-5"  # Manager + Engineer
+    hq_timezone: str = "Africa/Algiers"
+    hq_brief_hour: int = 8
+    hq_library_weekday: int = 4  # 0=Mon … 4=Fri
+    hq_scan_interval_minutes: int = 30
+
     # --- Scheduler ---
     enable_scheduler: bool = False
     scan_interval_minutes: int = 15
@@ -63,7 +76,7 @@ class Settings(BaseSettings):
             raise ValueError("SECRET_KEY must be at least 16 characters")
         return v
 
-    @field_validator("telegram_bot_token", "telegram_webhook_secret")
+    @field_validator("telegram_bot_token", "telegram_webhook_secret", "telegram_chat_id", "github_token")
     @classmethod
     def _strip_secret(cls, v: str) -> str:
         # Values pasted from a phone often carry spaces/newlines; a leading "bot" prefix is also a common mistake.

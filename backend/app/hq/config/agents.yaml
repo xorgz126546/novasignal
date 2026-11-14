@@ -1,0 +1,129 @@
+# CRYPTONEX HQ — agent registry. Adding/removing an agent is a change to THIS file only.
+# model: "routine" (cheap) | "senior" (strong) → resolved from HQ_MODEL_ROUTINE / HQ_MODEL_SENIOR.
+# tools: name -> minimum level required to use it (higher level unlocks more tools).
+# schedule: "manual" | "cycle" (every HQ scan) | "daily HH:MM" | "weekly DOW HH:MM" | "twice_daily HH:MM,HH:MM" (local HQ timezone)
+# room: where the agent sits in the Live Office.
+agents:
+  - id: manager
+    name: {en: "Maya — Manager", ar: "مايا — المديرة"}
+    role: "Chief of Staff. The owner's only contact: plans, delegates, collects results, writes briefs and reports."
+    room: manager_office
+    model: senior
+    tools: {chat: 1, delegate: 1, write_brief: 1, write_report: 1, summarize_proposal: 1}
+    schedule: "daily 08:00"
+    color: "#ff2a3d"
+  - id: scanner
+    name: {en: "Sami — Scanner", ar: "سامي — الماسح"}
+    role: "Builds the daily USDT universe from liquidity, volume and spread filters and watches it."
+    room: scanner_floor
+    model: routine
+    tools: {binance_tickers: 1, binance_book: 1, universe_write: 1}
+    schedule: cycle
+    color: "#38bdf8"
+  - id: structure
+    name: {en: "Nora — Structure Analyst", ar: "نورا — محللة الهيكل"}
+    role: "4H trend, 1H confirmation, 15M entry; BOS/CHoCH and key levels."
+    room: scanner_floor
+    model: routine
+    tools: {klines: 1, indicators: 1, structure: 1}
+    schedule: cycle
+    color: "#a78bfa"
+  - id: strat_breakout
+    name: {en: "Bilal — Breakout+Retest", ar: "بلال — الاختراق وإعادة الاختبار"}
+    role: "Strategy plug-in: breakout of a key level followed by a successful retest."
+    room: strategy_lab
+    model: routine
+    tools: {strategy_eval: 1}
+    schedule: cycle
+    strategy: breakout_retest
+    color: "#f59e0b"
+  - id: strat_pullback
+    name: {en: "Tara — Trend Pullback", ar: "تارا — ارتداد الاتجاه"}
+    role: "Strategy plug-in: buy pullbacks to dynamic support inside an established uptrend."
+    room: strategy_lab
+    model: routine
+    tools: {strategy_eval: 1}
+    schedule: cycle
+    strategy: trend_pullback
+    color: "#22c55e"
+  - id: strat_sweep
+    name: {en: "Layla — Liquidity Sweep", ar: "ليلى — كنس السيولة"}
+    role: "Strategy plug-in: sweep of a prior low then bullish change of character."
+    room: strategy_lab
+    model: routine
+    tools: {strategy_eval: 1}
+    schedule: cycle
+    strategy: liquidity_sweep
+    color: "#ec4899"
+  - id: risk
+    name: {en: "Rami — Risk Manager", ar: "رامي — مدير المخاطر"}
+    role: "Position sizing, minimum R:R, BTC market filter, exposure limits. Has VETO power."
+    room: risk_office
+    model: routine
+    tools: {veto: 1, sizing: 1}
+    schedule: cycle
+    color: "#ef4444"
+  - id: backtester
+    name: {en: "Badr — Backtester", ar: "بدر — المختبِر"}
+    role: "Backtest + walk-forward gate for every strategy and every proposal. Rejects anything below thresholds."
+    room: backtest_lab
+    model: routine
+    tools: {backtest: 1, walk_forward: 1}
+    schedule: "weekly FRI 06:00"
+    color: "#14b8a6"
+  - id: publisher
+    name: {en: "Pia — Publisher", ar: "بيا — الناشرة"}
+    role: "Dedup, score 0-100 with a configurable minimum, publishes in-app + Telegram."
+    room: manager_office
+    model: routine
+    tools: {publish: 1, telegram: 1}
+    schedule: cycle
+    color: "#eab308"
+  - id: auditor
+    name: {en: "Adam — Auditor/Watchdog", ar: "آدم — المدقق"}
+    role: "Tracks every signal outcome, data-feed health and errors; opens incidents."
+    room: risk_office
+    model: routine
+    tools: {outcomes: 1, health: 1, incidents: 1}
+    schedule: "every 10m"
+    color: "#94a3b8"
+  - id: engineer
+    name: {en: "Erin — Engineer", ar: "إيرين — المهندسة"}
+    role: "Turns incidents into fixes on agent/fix-<id> branches with tests (draft PR, never merges)."
+    room: engineering
+    model: senior
+    tools: {read_repo: 1, open_fix_pr: 1}
+    schedule: manual
+    color: "#60a5fa"
+  - id: scout
+    name: {en: "Sora — GitHub Scout", ar: "سورا — كشافة GitHub"}
+    role: "Finds and distills outside knowledge from public GitHub repos with strict license hygiene."
+    room: library
+    model: routine
+    tools: {github_search: 1, knowledge_write: 1, propose: 1}
+    schedule: "weekly MON 07:00"
+    color: "#c084fc"
+  - id: trend_hunter
+    name: {en: "Tariq — Trend Hunter", ar: "طارق — صائد الترندات"}
+    role: "Crypto narratives / trending coins and content-marketing trends."
+    room: content_studio
+    model: routine
+    tools: {binance_tickers: 1, coingecko_trending: 1, github_trending: 2}
+    schedule: "twice_daily 09:00,18:00"
+    color: "#fb923c"
+  - id: content
+    name: {en: "Celine — Content Editor", ar: "سيلين — محررة المحتوى"}
+    role: "Turns real signals, results and trends into AR/EN post and reel-script drafts and signal cards. Drafts only."
+    room: content_studio
+    model: routine
+    tools: {draft: 1, signal_card: 1}
+    schedule: "daily 10:00"
+    color: "#f472b6"
+  - id: librarian
+    name: {en: "Lina — Librarian/Coach", ar: "لينا — أمينة المكتبة"}
+    role: "Runs the weekly Library session, writes lessons into skills files, manages levels."
+    room: library
+    model: routine
+    tools: {skills_write: 1, levels: 1, weekly_report: 1}
+    schedule: "weekly FRI 17:00"
+    color: "#2dd4bf"

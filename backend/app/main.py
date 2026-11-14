@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from . import scheduler
-from .api import admin, auth, dashboard, public, settings, signals, telegram, validation
+from .api import admin, auth, dashboard, hq, public, settings, signals, telegram, validation
 from .config import get_settings
 from .db import SessionLocal, init_db
 from .security import limiter
@@ -86,7 +86,7 @@ def create_app() -> FastAPI:
         return JSONResponse({"detail": "Internal server error"}, status_code=500)
 
     for r in (public.router, auth.router, signals.router, dashboard.router, settings.router, validation.router,
-              admin.router, telegram.router):
+              admin.router, telegram.router, hq.router):
         app.include_router(r)
     if s.static_dir:
         _mount_spa(app, s.static_dir)
