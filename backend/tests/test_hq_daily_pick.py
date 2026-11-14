@@ -136,9 +136,11 @@ async def test_daily_pick_excludes_clearly_losing_strategies_and_reports_no_trad
     r = await dp.run_daily_pick(db, FakeMarket("up"), notify)
     assert r["status"] == "no_trade" and any("excluded" in w["why_not"] for w in r["watchlist"])
     assert db.query(Signal).count() == 0
-    assert texts and texts[0][0] == "text" and "NOT a recommendation" in texts[0][1]
-    assert db.query(HQReport).filter_by(kind="daily_pick").count() == 1
-    assert db.query(HQDecision).filter_by(symbol="*", decision="NO_TRADE").count() == 1
+    assert texts and texts[0][0] == "text" and "NOT recommendations" in texts[0][1]
+    await dp.run_daily_pick(db, FakeMarket("up"), notify)  # later re-check the same day
+    assert len(texts) == 1  # only one NO TRADE message per day
+    assert db.query(HQReport).filter_by(kind="daily_pick").count() == 2  # one report per check, one message per day
+    assert db.query(HQDecision).filter_by(symbol="*", decision="NO_TRADE").count() == 2
 
 
 def test_scheduler_runs_only_daily_pick_when_hq_disabled(monkeypatch):
@@ -151,3 +153,12 @@ def test_scheduler_runs_only_daily_pick_when_hq_disabled(monkeypatch):
     assert scheduler.active_jobs() == []
     monkeypatch.setattr(get_settings(), "hq_enabled", True)
     assert "trading_cycle" in {n for n, _ in scheduler.active_jobs()}
+
+
+def test_triggers_are_conditions_with_levels():
+    down = [100 * 0.996 ** i for i in range(300)]
+    ctx = ctx_of(down, down)
+    trig = dp.triggers({"TESTUSDT": ctx})
+    assert all(t["trigger"] and t["distance_pct"] >= 0 for t in trig)
+    if trig:
+        assert trig[0]["strategy"] == "oversold_bounce" and "close above" in trig[0]["trigger"]

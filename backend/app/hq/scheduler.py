@@ -72,7 +72,7 @@ def jobs() -> list[tuple[str, str]]:
         ("backtest_baselines", "weekly FRI 06:00"),
         ("library", f"weekly {list(DOW)[s.hq_library_weekday]} 17:00"),
         ("pr_watch", "every 30m"),
-        ("daily_pick", f"daily {s.hq_daily_pick_time}"),
+        ("daily_pick", f"twice_daily {s.hq_daily_pick_time}"),  # any number of HH:MM times
         ("tournament", "weekly SUN 05:00"),
     ]
 

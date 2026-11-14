@@ -90,6 +90,30 @@ def leaderboard(db: Session) -> list[dict]:
             for a in active_strategies(db)]
 
 
+# ---------------- trigger watchlist (conditions, NOT recommendations) ----------------
+def triggers(contexts: dict) -> list[dict]:
+    """Markets closest to triggering a strategy, with the exact deterministic condition to watch."""
+    out = []
+    for sym, ctx in contexts.items():
+        f, cs = ctx.features, ctx.candles.get("1h", [])
+        if not cs:
+            continue
+        px = cs[-1].close
+        if f.get("rsi_min6_1h", 100) < 30:
+            lvl = cs[-1].high
+            out.append({"symbol": sym, "strategy": "oversold_bounce", "distance_pct": round((lvl - px) / px * 100, 2),
+                        "trigger": f"1H close above {lvl:.6g} with RSI(1h) ≥ 35 (was oversold at {f['rsi_min6_1h']:.1f})"})
+        if "donchian_high20_4h" in f and f.get("adx_4h", 0) >= 20 and f.get("ema21_4h", 0) > f.get("ema50_4h", 0):
+            lvl = f["donchian_high20_4h"]
+            out.append({"symbol": sym, "strategy": "donchian_breakout", "distance_pct": round((lvl - px) / px * 100, 2),
+                        "trigger": f"4H close above {lvl:.6g} (20-bar 4H high)"})
+        if f.get("squeeze_recent_1h") and "donchian_high20_1h" in f:
+            lvl = f["donchian_high20_1h"]
+            out.append({"symbol": sym, "strategy": "squeeze_breakout", "distance_pct": round((lvl - px) / px * 100, 2),
+                        "trigger": f"1H close above {lvl:.6g} on 1.3x+ volume after a volatility squeeze"})
+    return sorted([t for t in out if t["distance_pct"] >= 0], key=lambda t: t["distance_pct"])[:5]
+
+
 # ---------------- daily best pick ----------------
 async def run_daily_pick(db: Session, client: BinanceClient, notify=None, notify_owner=None, now=None) -> dict:
     now = now or utcnow()
@@ -201,20 +225,28 @@ async def run_daily_pick(db: Session, client: BinanceClient, notify=None, notify
                           reasons=[f"NO TRADE today: no setup passed every rule ({len(contexts)} markets × all strategies)"]
                           + [f"watch {w['symbol']} ({w['strategy']}): {w['why_not']}" for w in watch]))
         db.commit()
+        trig = triggers(contexts)
+        btc_line = (f"- BTC 7 days: {btc.features['ret_168_1h']:+.2f}% · {btc_ok[1]}" if btc and "ret_168_1h" in btc.features
+                    else f"- {btc_ok[1]}")
         lines = [f"# Daily pick {day}: NO TRADE", "",
-                 f"All strategies checked {len(contexts)} markets. No setup passed every rule today, so there is no recommendation.",
-                 f"- BTC market filter: {btc_ok[1]}", "", "## Watchlist (NOT a recommendation)",
-                 *([f"- {w['symbol']} — {w['strategy']} near {w['entry']:.6g}: {w['why_not']}" for w in watch] or ["- nothing close"]),
+                 f"All 8 strategies checked {len(contexts)} markets. No setup passed every rule, so there is no recommendation yet.",
+                 btc_line, "I re-check at the next scheduled time today and publish automatically if a valid setup appears.", "",
+                 "## Triggers to watch (conditions, NOT recommendations)",
+                 *([f"- {x['symbol']} — {x['strategy']}: {x['trigger']} ({x['distance_pct']}% away)" for x in trig] or ["- none close"]),
+                 "", "## Near misses", *([f"- {w['symbol']} — {w['strategy']}: {w['why_not']}" for w in watch] or ["- none"]),
                  "", "_Not financial advice._"]
-        rep = save_report(db, "daily_pick", f"Daily pick {day}: NO TRADE", "\n".join(lines), {"watchlist": watch}, "manager")
-        t.result = {"summary": f"NO TRADE today; {len(watch)} on watchlist"}
-    bus.publish(db, "no_trade", "manager", cycle_ref=ref, reasons=[w["why_not"] for w in watch][:3])
-    msg = md_to_telegram("\n".join(lines))
-    if notify:
-        await notify("text", msg)
-    elif notify_owner:
-        await notify_owner(msg)
-    return {"status": "no_trade", "report_id": rep.id, "watchlist": watch}
+        first_today = not db.scalar(select(HQReport).where(HQReport.kind == "daily_pick", HQReport.day == day))
+        rep = save_report(db, "daily_pick", f"Daily pick {day}: NO TRADE", "\n".join(lines),
+                          {"watchlist": watch, "triggers": trig}, "manager")
+        t.result = {"summary": f"NO TRADE; {len(trig)} trigger(s) on watch"}
+    bus.publish(db, "no_trade", "manager", cycle_ref=ref, reasons=[x["trigger"] for x in trig][:3])
+    if first_today:  # one NO TRADE message per day; later re-checks stay silent unless a pick is published
+        msg = md_to_telegram("\n".join(lines))
+        if notify:
+            await notify("text", msg)
+        elif notify_owner:
+            await notify_owner(msg)
+    return {"status": "no_trade", "report_id": rep.id, "watchlist": watch, "triggers": trig}
 
 
 def needs_tournament(db: Session, max_age_days: int = 8) -> bool:
