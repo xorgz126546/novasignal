@@ -246,3 +246,14 @@ def decisions(limit: int = Query(100, le=500), admin: User = Depends(require_adm
     return [_row(d, "id", "created_at", "cycle_ref", "symbol", "strategy_id", "decision", "stage", "reasons", "levels",
                  "score", "signal_id", "audit_result")
             for d in db.scalars(select(HQDecision).order_by(HQDecision.id.desc()).limit(limit))]
+
+
+# ---------------- loops (manual triggers; the scheduler runs them when HQ_ENABLED=true) ----------------
+@router.post("/cycle")
+async def run_cycle(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from ..hq.loops.trading import run_hq_cycle
+    from ..market.binance import get_client
+    from ..telegram.bot import notify
+
+    audit(db, f"user:{admin.id}", "hq_cycle")
+    return await run_hq_cycle(db, get_client(), notify)

@@ -83,3 +83,37 @@ def detect_patterns(candles: Sequence[Candle]) -> list[dict]:
             candles[-1].close < candles[-2].close < candles[-3].close:
         out.append({"name": "three_black_crows", "bias": "bearish"})
     return out
+
+
+def bos_choch(highs: Sequence[float], lows: Sequence[float], closes: Sequence[float], window: int = 2) -> dict:
+    """Break of Structure / Change of Character from closes crossing the latest confirmed swing points.
+
+    A swing point is confirmed `window` bars after it forms (no look-ahead). Close above the last swing high
+    is BOS up when the state was already up (or unknown), CHoCH up when the state was down; mirror for down.
+    """
+    n = len(closes)
+    state = "range"
+    last_sh = last_sl = None  # (index, price) of latest *confirmed* swings
+    events: list[dict] = []
+    broken_sh = broken_sl = None
+    for i in range(n):
+        j = i - window  # candidate swing confirmed at i
+        if j - window >= 0:
+            seg_h = highs[j - window:j + window + 1]
+            seg_l = lows[j - window:j + window + 1]
+            if highs[j] == max(seg_h) and seg_h.count(highs[j]) == 1:
+                last_sh = (j, highs[j])
+            if lows[j] == min(seg_l) and seg_l.count(lows[j]) == 1:
+                last_sl = (j, lows[j])
+        c = closes[i]
+        if last_sh and c > last_sh[1] and broken_sh != last_sh[0]:
+            kind = "CHoCH" if state == "down" else "BOS"
+            events.append({"type": kind, "dir": "up", "level": last_sh[1], "index": i})
+            state, broken_sh = "up", last_sh[0]
+        elif last_sl and c < last_sl[1] and broken_sl != last_sl[0]:
+            kind = "CHoCH" if state == "up" else "BOS"
+            events.append({"type": kind, "dir": "down", "level": last_sl[1], "index": i})
+            state, broken_sl = "down", last_sl[0]
+    return {"bias": state, "events": events[-5:], "last_event": events[-1] if events else None,
+            "swing_high": last_sh[1] if last_sh else None, "swing_low": last_sl[1] if last_sl else None,
+            "bars": n}
