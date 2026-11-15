@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root { min-height: 100%; background: #050505; }
+  ::selection { background: #ff2a3d55; }
+}
+@layer components {
+  .card { @apply bg-graphite-800/80 border border-graphite-600/70 rounded-2xl; }
+  .card-pad { @apply p-4 sm:p-5; }
+  .label { @apply text-[11px] uppercase tracking-[0.12em] text-zinc-500 font-medium; }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed; }
+  .btn-primary { @apply btn bg-accent text-white hover:bg-accent-dim shadow-[0_0_24px_-6px_#ff2a3d]; }
+  .btn-ghost { @apply btn border border-graphite-500 text-zinc-200 hover:bg-graphite-700; }
+  .input { @apply w-full rounded-xl bg-graphite-900 border border-graphite-600 px-3 py-2 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/20; }
+  .num { @apply font-mono tabular-nums; }
+  .table { @apply w-full text-sm; }
+  .table th { @apply text-left label py-2 px-3 border-b border-graphite-600 whitespace-nowrap; }
+  .table td { @apply py-2.5 px-3 border-b border-graphite-700 whitespace-nowrap; }
+}
