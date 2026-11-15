@@ -18,6 +18,8 @@ from ..strategies.base import Strategy
 from ..versions import active_data
 
 DEFAULT_UNIVERSE = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"]
+# Long-term setups are rare per coin, so they are tested on more liquid majors (daily data is cheap).
+PROFILE_UNIVERSE = {"invest": DEFAULT_UNIVERSE + ["ADAUSDT", "DOGEUSDT", "LINKUSDT", "AVAXUSDT", "DOTUSDT", "LTCUSDT", "TRXUSDT"]}
 CACHE_TTL = timedelta(hours=6)
 
 
@@ -76,7 +78,7 @@ async def run_gate(db: Session, client: BinanceClient, strategy: Strategy, param
     with runtime.task(db, "backtester", "backtest", f"Walk-forward gate ({prof.label_en}): {subject}") as t:
         data = {}
         tfs = [tf for tf in prof.tfs if tf in HISTORY_BARS]
-        for sym in universe or DEFAULT_UNIVERSE:
+        for sym in universe or PROFILE_UNIVERSE.get(prof.id, DEFAULT_UNIVERSE):
             data[sym] = {tf: await history(db, client, sym, tf, HISTORY_BARS[tf]) for tf in tfs}
         btc = (data.get("BTCUSDT", {}).get("1h")) or await history(db, client, "BTCUSDT", "1h", HISTORY_BARS["1h"])
         res = await asyncio.to_thread(simulate, strategy, params, data, risk, horizon_bars(prof.id, risk), 1, btc)

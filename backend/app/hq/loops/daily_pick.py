@@ -111,7 +111,7 @@ def triggers(contexts: dict) -> list[dict]:
             lvl = f["donchian_high20_1h"]
             out.append({"symbol": sym, "strategy": "squeeze_breakout", "distance_pct": round((lvl - px) / px * 100, 2),
                         "trigger": f"1H close above {lvl:.6g} on 1.3x+ volume after a volatility squeeze"})
-    return sorted([t for t in out if t["distance_pct"] >= 0], key=lambda t: t["distance_pct"])[:5]
+    return sorted([t for t in out if 0 <= t["distance_pct"] <= 10], key=lambda t: t["distance_pct"])[:5]
 
 
 # ---------------- daily best pick ----------------
