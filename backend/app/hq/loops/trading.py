@@ -25,6 +25,7 @@ from ..data import fetch_context
 from ..models import HQDecision
 from ..registry import ensure_agents
 from ..strategies.base import Reject, Setup
+from ..profiles import prepare
 from ..strategies.registry import active_strategies
 
 log = logging.getLogger("cryptonex.hq.trading")
@@ -96,23 +97,31 @@ async def _run(db: Session, client: BinanceClient, notify, now: datetime) -> dic
             except MarketDataError as e:
                 _decision(db, ref, sym, "NO_TRADE", "structure", [f"market data unavailable/stale: {e}"])
         btc_ret = btc.features.get("ret_168_1h") if btc else None
-        for c in contexts.values():
+        qv = {t["symbol"]: float(t["quoteVolume"]) for t in tickers}
+        for sym, c in contexts.items():
             c.extras["btc_ret_7d"] = btc_ret
+            c.extras["quote_volume_24h"] = qv.get(sym)
         t.result = {"summary": f"structure ready for {len(contexts)} markets",
                     "bias": {s: {tf: c.structure.get(tf, {}).get("bias") for tf in ("4h", "1h", "15m")} for s, c in contexts.items()}}
 
     # 3) Strategy agents — independent plug-ins
     setups: list[tuple[Setup, str]] = []
+    prisk_of: dict[int, object] = {}  # id(setup) -> profile risk rules
     rejects: dict[str, list[str]] = {s: [] for s in contexts}
     for act in active_strategies(db):
         with runtime.task(db, act.agent_id, "strategy", f"{act.strategy.name}: checking {len(contexts)} markets") as t:
             found = 0
             for sym, ctx in contexts.items():
-                r = act.strategy.evaluate(ctx, act.params, risk)
+                prisk = prepare(ctx, act.strategy, risk)
+                if prisk is None:
+                    rejects[sym].append(f"{act.strategy.id}: not liquid enough for {act.strategy.profile}")
+                    continue
+                r = act.strategy.evaluate(ctx, act.params, prisk)
                 if isinstance(r, Reject):
                     rejects[sym].append(f"{r.strategy_id}: {r.reason}")
                 else:
                     setups.append((r, act.agent_id))
+                    prisk_of[id(r)] = prisk
                     found += 1
             t.result = {"summary": f"{found} candidate setup(s)"}
     for sym, rs in rejects.items():
@@ -127,7 +136,7 @@ async def _run(db: Session, client: BinanceClient, notify, now: datetime) -> dic
     with runtime.task(db, "risk", "risk", f"Risk review of {len(setups)} setup(s)") as t:
         btc_ok = riskmod.btc_filter(btc)
         for s, agent_id in setups:
-            v = riskmod.assess(s, contexts[s.symbol], risk, btc_ok, len(open_sigs), {x.symbol for x in open_sigs}, signals_today,
+            v = riskmod.assess(s, contexts[s.symbol], prisk_of.get(id(s), risk), btc_ok, len(open_sigs), {x.symbol for x in open_sigs}, signals_today,
                                riskmod.is_decoupled(contexts[s.symbol], btc))
             if v.approved:
                 approved.append((s, agent_id, v.sizing, s.reasons + v.reasons))
@@ -158,16 +167,17 @@ async def _run(db: Session, client: BinanceClient, notify, now: datetime) -> dic
     with runtime.task(db, "publisher", "publish", f"Scoring {len(chosen)} setup(s)") as t:
         minimum = pub.min_score(db)
         for s, agent_id, sizing, reasons in chosen:
-            dup = pub.is_duplicate(db, s.symbol, s.strategy_id, now, risk.symbol_cooldown_hours)
+            dup = pub.is_duplicate(db, s.symbol, s.strategy_id, now, prisk_of.get(id(s), risk).symbol_cooldown_hours)
             if dup:
                 _decision(db, ref, s.symbol, "NO_TRADE", "publisher", [dup], s.strategy_id, _levels(s))
                 continue
-            sc, breakdown = pub.score(s, contexts[s.symbol], risk, pub.agent_level(db, agent_id))
+            prisk = prisk_of.get(id(s), risk)
+            sc, breakdown = pub.score(s, contexts[s.symbol], prisk, pub.agent_level(db, agent_id))
             if sc < minimum:
                 _decision(db, ref, s.symbol, "NO_TRADE", "publisher", [f"score {sc:.0f} below minimum {minimum:.0f}"],
                           s.strategy_id, _levels(s), sc)
                 continue
-            sig = pub.publish(db, s, contexts[s.symbol], risk, sizing, sc, breakdown, reasons, now, ref)
+            sig = pub.publish(db, s, contexts[s.symbol], prisk, sizing, sc, breakdown, reasons, now, ref)
             sig.agent_outputs = {**sig.agent_outputs, "hq": {**sig.agent_outputs["hq"], "agent_id": agent_id}}
             _decision(db, ref, s.symbol, "SIGNAL", "publisher", reasons[:6], s.strategy_id, _levels(s), sc, sig.id)
             db.commit()

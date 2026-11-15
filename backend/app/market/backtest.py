@@ -65,36 +65,53 @@ def _btc_ret_7d(btc: list[Candle] | None, close_times: list[int] | None, t: int)
     return (btc[j].close - btc[j - 168].close) / btc[j - 168].close * 100
 
 
-def _ctx_at(symbol: str, c1h: list[Candle], c4h: list[Candle], i: int, risk_tick: float,
-            btc: list[Candle] | None = None, btc_ct: list[int] | None = None) -> Context:
-    window = c1h[max(0, i - WINDOW + 1):i + 1]
-    t_close = c1h[i].close_time
-    h4 = [c for c in c4h if c.close_time <= t_close][-WINDOW:]
-    feats, st = build_features({"1h": window, "4h": h4})
-    ctx = Context(symbol, {"1h": window, "4h": h4}, feats, st, window[-1].close, risk_tick, 0.0, 0.0, backtest=True)
+def _ctx_at(symbol: str, series: dict[str, list[Candle]], close_times: dict[str, list[int]], base_tf: str, i: int,
+            btc: list[Candle] | None, btc_ct: list[int] | None, res_tfs: tuple[str, ...]) -> Context:
+    """Context at bar i of the base timeframe, using ONLY candles closed by then (no look-ahead)."""
+    base = series[base_tf]
+    t_close = base[i].close_time
+    candles = {base_tf: base[max(0, i - WINDOW + 1):i + 1]}
+    for tf, cs in series.items():
+        if tf == base_tf:
+            continue
+        j = bisect.bisect_right(close_times[tf], t_close)
+        candles[tf] = cs[max(0, j - WINDOW):j]
+    feats, st = build_features(candles)
+    ctx = Context(symbol, candles, feats, st, base[i].close, 0.0, 0.0, 0.0, backtest=True)
     ctx.extras["btc_ret_7d"] = _btc_ret_7d(btc, btc_ct, t_close)
+    ctx.extras["res_tfs"] = res_tfs
     return ctx
 
 
-def simulate(strategy: Strategy, params: dict, data: dict[str, tuple[list[Candle], list[Candle]]], risk: RiskConfig,
-             horizon_bars: int | None = None, step: int = 1, btc_1h: list[Candle] | None = None) -> BacktestResult:
+def simulate(strategy: Strategy, params: dict, data: dict, risk: RiskConfig, horizon_bars: int | None = None,
+             step: int = 1, btc_1h: list[Candle] | None = None) -> BacktestResult:
+    """data: {symbol: {tf: candles}} (or legacy {symbol: (c1h, c4h)}). Steps on the strategy profile's base timeframe."""
+    from ..hq.profiles import PROFILES
+
+    prof = PROFILES.get(getattr(strategy, "profile", "swing"), PROFILES["swing"])
+    base_tf = prof.base_tf
     horizon = horizon_bars or int(risk.signal_horizon_hours)
     fee, slip = risk.fee_rate_pct / 100, risk.slippage_pct / 100
     res = BacktestResult(symbols=list(data))
     btc_ct = [c.close_time for c in btc_1h] if btc_1h else None
-    for sym, (c1h, c4h) in data.items():
-        res.bars += max(0, len(c1h) - WARMUP)
+    for sym, raw in data.items():
+        series = raw if isinstance(raw, dict) else {"1h": raw[0], "4h": raw[1]}
+        if base_tf not in series:
+            continue
+        cts = {tf: [c.close_time for c in cs] for tf, cs in series.items()}
+        bars = series[base_tf]
+        res.bars += max(0, len(bars) - WARMUP)
         i = WARMUP
-        while i < len(c1h) - 2:
-            r = strategy.evaluate(_ctx_at(sym, c1h, c4h, i, 0.0, btc_1h, btc_ct), params, risk)
+        while i < len(bars) - 2:
+            r = strategy.evaluate(_ctx_at(sym, series, cts, base_tf, i, btc_1h, btc_ct, prof.res_tfs), params, risk)
             if not isinstance(r, Setup):
                 i += step
                 continue
-            entry = c1h[i + 1].open * (1 + slip)  # next bar open: no look-ahead
+            entry = bars[i + 1].open * (1 + slip)  # next bar open: no look-ahead
             sl, tp = r.stop, r.take_profit
             outcome, exit_px, j = "timeout", None, i + 1
-            while j < min(len(c1h), i + 1 + horizon):
-                c = c1h[j]
+            while j < min(len(bars), i + 1 + horizon):
+                c = bars[j]
                 if c.low <= sl:
                     outcome, exit_px = "sl", sl * (1 - 2 * slip)
                     break
@@ -103,11 +120,11 @@ def simulate(strategy: Strategy, params: dict, data: dict[str, tuple[list[Candle
                     break
                 j += 1
             if exit_px is None:
-                if j >= len(c1h):
+                if j >= len(bars):
                     break  # not enough future data: discard (never extrapolate)
-                exit_px, j = c1h[j - 1].close * (1 - slip), j - 1
+                exit_px, j = bars[j - 1].close * (1 - slip), j - 1
             net = ((exit_px * (1 - fee)) - entry * (1 + fee)) / (entry * (1 + fee)) * 100
-            res.trades.append(Trade(sym, c1h[i + 1].open_time, c1h[j].close_time, entry, exit_px, outcome, net))
+            res.trades.append(Trade(sym, bars[i + 1].open_time, bars[j].close_time, entry, exit_px, outcome, net))
             i = j + 1  # non-overlapping
     return res
 

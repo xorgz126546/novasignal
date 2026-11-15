@@ -11,7 +11,7 @@ from ..market import indicators as ta
 from ..market.binance import Candle
 from ..market.structure import bos_choch, swing_highs, swing_lows
 
-TIMEFRAMES = ("4h", "1h", "15m")
+TIMEFRAMES = ("1d", "4h", "1h", "15m")
 LOOKBACK = 300  # bars per timeframe used for features (enough for EMA200)
 
 

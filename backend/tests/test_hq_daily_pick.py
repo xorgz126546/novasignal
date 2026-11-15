@@ -25,24 +25,29 @@ def ctx_of(c1h, c4h, sym="TESTUSDT", btc_ret=None) -> Context:
     return ctx
 
 
-def test_eight_strategies_owned_by_three_agents_still_15_agents():
+def test_thirteen_strategies_three_horizons_still_15_agents():
+    from app.hq.profiles import PROFILES
     assert len(load_defs()) == 15
     assert set(BUILTINS) == {"breakout_retest", "trend_pullback", "liquidity_sweep", "squeeze_breakout",
-                             "donchian_breakout", "relative_strength", "oversold_bounce", "range_support"}
+                             "donchian_breakout", "relative_strength", "oversold_bounce", "range_support",
+                             "scalp_pullback", "scalp_breakout", "invest_200d_reclaim", "invest_golden_cross", "invest_bull_dip"}
+    assert {s.profile for s in BUILTINS.values()} == set(PROFILES)
 
 
 def test_every_strategy_returns_setup_or_reason_on_any_market(db):
+    from app.hq.profiles import prepare
     acts = active_strategies(db)
-    assert len(acts) == 8
+    assert len(acts) == 13
     for series in (uptrend(320), [100 * 0.998 ** i for i in range(320)], [100 + (i % 7) * 0.3 for i in range(320)]):
         ctx = ctx_of(series, series, btc_ret=0.0)
         for a in acts:
-            r = a.strategy.evaluate(ctx, a.params, R)
+            pr = prepare(ctx, a.strategy, R)
+            r = a.strategy.evaluate(ctx, a.params, pr)
             assert isinstance(r, (Setup, Reject))
             if isinstance(r, Reject):
                 assert r.reason
             else:
-                assert r.stop < r.entry < r.take_profit and R.target_move_min_pct <= r.move_pct <= R.target_move_max_pct
+                assert r.stop < r.entry < r.take_profit and pr.target_move_min_pct <= r.move_pct <= pr.target_move_max_pct
 
 
 def test_oversold_bounce_detects_recovery():
@@ -93,7 +98,7 @@ def test_evidence_grades(db):
     _run(db, "range_support", False, 30, -1.2)
     _run(db, "donchian_breakout", False, 4, -3.0)
     assert [dp.evidence(db, s)["grade"] for s in ("squeeze_breakout", "oversold_bounce", "range_support", "donchian_breakout")] == ["B", "D", "F", "C"]
-    assert len(dp.leaderboard(db)) == 8
+    assert len(dp.leaderboard(db)) == 13
 
 
 async def test_daily_pick_publishes_best_and_only_once_per_day(db, monkeypatch):
@@ -115,8 +120,10 @@ async def test_daily_pick_publishes_best_and_only_once_per_day(db, monkeypatch):
     assert r["status"] == "picked" and r["strategy"] == "oversold_bounce", r
     s = db.get(Signal, r["signal_id"])
     assert s.source == "hq" and "DAILY BEST PICK" in s.justification[0] and "evidence" in s.justification[1].lower()
-    assert sent == ["new_signal"]
-    assert (await dp.run_daily_pick(db, FakeMarket("up"), notify))["status"] == "already_picked"
+    assert sent == ["new_signal", "text"]  # swing pick + one daily summary (scalp/long-term: NO TRADE)
+    r2 = await dp.run_daily_pick(db, FakeMarket("up"), notify)  # re-check later the same day
+    assert db.query(Signal).count() == 1 and sent == ["new_signal", "text"]  # no duplicate pick, no second message
+    assert r2["missing"] == ["scalp", "invest"]
 
 
 async def test_daily_pick_excludes_clearly_losing_strategies_and_reports_no_trade(db, monkeypatch):
@@ -140,7 +147,7 @@ async def test_daily_pick_excludes_clearly_losing_strategies_and_reports_no_trad
     await dp.run_daily_pick(db, FakeMarket("up"), notify)  # later re-check the same day
     assert len(texts) == 1  # only one NO TRADE message per day
     assert db.query(HQReport).filter_by(kind="daily_pick").count() == 2  # one report per check, one message per day
-    assert db.query(HQDecision).filter_by(symbol="*", decision="NO_TRADE").count() == 2
+    assert db.query(HQDecision).filter_by(symbol="*", decision="NO_TRADE").count() == 6  # 3 types x 2 checks
 
 
 def test_scheduler_runs_only_daily_pick_when_hq_disabled(monkeypatch):

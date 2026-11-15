@@ -25,7 +25,8 @@ def thresholds(db: Session) -> GateThresholds:
     return GateThresholds(**(active_data(db, "backtest_gate") or {}))
 
 
-INTERVAL_MS = {"1h": 3_600_000, "4h": 14_400_000}
+INTERVAL_MS = {"15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000}
+HISTORY_BARS = {"15m": 4000, "1h": 3000, "4h": 1000, "1d": 1000}  # ≈ 6 weeks / 4 months / 5.5 months / 2.7 years
 
 
 async def _paged(client: BinanceClient, symbol: str, interval: str, limit: int) -> list[Candle]:
@@ -67,14 +68,18 @@ def variants_tried(db: Session, subject_prefix: str) -> int:
 async def run_gate(db: Session, client: BinanceClient, strategy: Strategy, params: dict, subject: str,
                    proposal: HQProposal | None = None, baseline: dict | None = None,
                    universe: list[str] | None = None) -> HQBacktestRun:
-    risk = load_config(db).risk
+    from ..profiles import PROFILES, horizon_bars, profile_risk
+
+    prof = PROFILES.get(getattr(strategy, "profile", "swing"), PROFILES["swing"])
+    risk = profile_risk(load_config(db).risk, prof.id)
     th = thresholds(db)
-    with runtime.task(db, "backtester", "backtest", f"Walk-forward gate: {subject}") as t:
+    with runtime.task(db, "backtester", "backtest", f"Walk-forward gate ({prof.label_en}): {subject}") as t:
         data = {}
+        tfs = [tf for tf in prof.tfs if tf in HISTORY_BARS]
         for sym in universe or DEFAULT_UNIVERSE:
-            data[sym] = (await history(db, client, sym, "1h", 3000), await history(db, client, sym, "4h", 1000))
-        btc = data["BTCUSDT"][0] if "BTCUSDT" in data else await history(db, client, "BTCUSDT", "1h", 3000)
-        res = await asyncio.to_thread(simulate, strategy, params, data, risk, None, 1, btc)
+            data[sym] = {tf: await history(db, client, sym, tf, HISTORY_BARS[tf]) for tf in tfs}
+        btc = (data.get("BTCUSDT", {}).get("1h")) or await history(db, client, "BTCUSDT", "1h", HISTORY_BARS["1h"])
+        res = await asyncio.to_thread(simulate, strategy, params, data, risk, horizon_bars(prof.id, risk), 1, btc)
         n_var = variants_tried(db, subject.split("@")[0])
         result = gate(res, th, n_var, baseline)
         result["thresholds"] = asdict(th)

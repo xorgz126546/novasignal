@@ -18,6 +18,20 @@ function NumField({ label, value, onChange, step = 0.1, disabled }: { label: str
   );
 }
 
+function LiveProof() {
+  const { data, error, reload } = useFetch<any>("/api/market/live", 15000);
+  if (error) return <p className="text-xs text-down mt-3">Live check failed: {error}</p>;
+  if (!data) return null;
+  return (
+    <div className="mt-3 rounded-xl border border-up/30 bg-up/5 p-3 text-xs space-y-1" dir="ltr">
+      <div className="flex justify-between"><span className="text-up font-semibold">● LIVE from Binance</span><button className="text-zinc-400" onClick={reload}>↻</button></div>
+      <div>BTC/USDT now: <b className="num">{data.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}</b></div>
+      <div>Last closed 1m candle: <span className="num">{new Date(data.last_closed_1m_candle.close_time).toLocaleTimeString()}</span> · close {data.last_closed_1m_candle.close}</div>
+      <div className="text-zinc-500">Binance server time: {new Date(data.binance_server_time).toLocaleTimeString()} · API key used: no</div>
+    </div>
+  );
+}
+
 export default function Settings() {
   const { user, refresh } = useAuth();
   const { data, error, loading, reload } = useFetch<any>("/api/settings");
@@ -51,6 +65,7 @@ export default function Settings() {
           <p className="text-sm text-zinc-300">{d.binance.mode}</p>
           <p className="text-xs text-zinc-500 mt-2 num">{d.binance.base_url}</p>
           <p className="text-xs text-zinc-500 mt-3">No API key is needed or stored. CRYPTONEX AI never places orders and never requests withdrawal permission.</p>
+          <LiveProof />
         </Section>
         <Section title="Telegram" right={d.telegram.linked ? <Badge tone="ok">LINKED</Badge> : <Badge tone="idle">NOT LINKED</Badge>}>
           {!d.telegram.bot_configured ? (

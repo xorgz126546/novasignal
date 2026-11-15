@@ -30,33 +30,33 @@ agents:
     color: "#a78bfa"
   - id: strat_breakout
     name: {en: "Bilal — Breakout+Retest", ar: "بلال — الاختراق وإعادة الاختبار"}
-    role: "Breakout desk: breakout+retest, volatility-squeeze breakout and 4H Donchian breakout."
+    role: "Breakout desk: breakout+retest, volatility squeeze, 4H Donchian breakout and 15m scalp breakouts."
     room: strategy_lab
     model: routine
     tools: {strategy_eval: 1}
     schedule: cycle
     strategy: breakout_retest
-    strategies: [breakout_retest, squeeze_breakout, donchian_breakout]
+    strategies: [breakout_retest, squeeze_breakout, donchian_breakout, scalp_breakout]
     color: "#f59e0b"
   - id: strat_pullback
     name: {en: "Tara — Trend Pullback", ar: "تارا — ارتداد الاتجاه"}
-    role: "Trend desk: pullbacks in uptrends and relative-strength leaders that outperform BTC."
+    role: "Trend desk: pullbacks, relative-strength leaders, 15m scalp pullbacks and long-term trend investing (200-day reclaim, golden cross)."
     room: strategy_lab
     model: routine
     tools: {strategy_eval: 1}
     schedule: cycle
     strategy: trend_pullback
-    strategies: [trend_pullback, relative_strength]
+    strategies: [trend_pullback, relative_strength, scalp_pullback, invest_200d_reclaim, invest_golden_cross]
     color: "#22c55e"
   - id: strat_sweep
     name: {en: "Layla — Liquidity Sweep", ar: "ليلى — كنس السيولة"}
-    role: "Reversal desk: liquidity sweeps, oversold bounces and range-support bounces."
+    role: "Reversal desk: liquidity sweeps, oversold bounces, range-support bounces and long-term bull-market dips."
     room: strategy_lab
     model: routine
     tools: {strategy_eval: 1}
     schedule: cycle
     strategy: liquidity_sweep
-    strategies: [liquidity_sweep, oversold_bounce, range_support]
+    strategies: [liquidity_sweep, oversold_bounce, range_support, invest_bull_dip]
     color: "#ec4899"
   - id: risk
     name: {en: "Rami — Risk Manager", ar: "رامي — مدير المخاطر"}

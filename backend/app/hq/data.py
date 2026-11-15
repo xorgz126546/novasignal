@@ -4,7 +4,7 @@ from __future__ import annotations
 from ..market.binance import BinanceClient, SymbolInfo, assert_fresh, closed_candles
 from .features import Context, build_features
 
-TF_LIMITS = {"4h": 300, "1h": 300, "15m": 200}
+TF_LIMITS = {"1d": 300, "4h": 300, "1h": 300, "15m": 300}
 
 
 async def fetch_context(client: BinanceClient, symbol: str, info: SymbolInfo | None) -> Context:

@@ -151,3 +151,22 @@ def system_status(user: User = Depends(require_subscriber), db: Session = Depend
                          for s in db.scalars(select(ServiceState))],
             "binance": {"base_url": c.base_url, "last_ok_at": c.last_ok_at, "last_error": c.last_error,
                         "public_data_only": True}}
+
+
+@router.get("/market/live")
+async def market_live(user: User = Depends(require_subscriber)):
+    """Proof that market data is real and live: fetched from Binance at request time (no API key needed)."""
+    from ..market.binance import MarketDataError, closed_candles, get_client
+
+    c = get_client()
+    try:
+        price = await c.price("BTCUSDT")
+        last = closed_candles(await c.klines("BTCUSDT", "1m", 3))[-1]
+        server_ms = (await c._get("/api/v3/time"))["serverTime"]
+    except MarketDataError as e:
+        raise HTTPException(503, f"Binance unavailable: {e}")
+    return {"source": c.base_url, "symbol": "BTCUSDT", "price": price, "last_closed_1m_candle": {
+        "close_time": last.close_time, "close": last.close, "volume": last.volume},
+            "binance_server_time": server_ms, "api_key_used": False,
+            "note": "Binance public market data is free and needs no API key. Keys are only for account access/trading, "
+                    "which CRYPTONEX never uses."}

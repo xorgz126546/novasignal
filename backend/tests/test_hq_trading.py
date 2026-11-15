@@ -142,7 +142,7 @@ class FakeMarket:
         now_ms = int(utcnow().timestamp() * 1000)
         g = uptrend if trend == "up" else (lambda n: [100 * 0.998 ** i for i in range(n)])
         self.c = {tf: make_candles(g(301), ms, start_ms=now_ms - 301 * ms - 1)
-                  for tf, ms in (("4h", 14_400_000), ("1h", 3_600_000), ("15m", 900_000))}
+                  for tf, ms in (("1d", 86_400_000), ("4h", 14_400_000), ("1h", 3_600_000), ("15m", 900_000))}
 
     async def exchange_info(self):
         return {s: SymbolInfo(s, s[:-4], "USDT", "TRADING", True, 0.0001, 0.001, 5) for s in ("TESTUSDT", "BTCUSDT")}

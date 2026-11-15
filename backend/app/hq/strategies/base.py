@@ -33,6 +33,7 @@ class Reject:
 class Strategy:
     id: str = ""
     name: str = ""
+    profile: str = "swing"  # scalp | swing | invest (see hq/profiles.py)
     default_params: dict = {}
 
     def evaluate(self, ctx: Context, params: dict, risk: RiskConfig) -> Setup | Reject:  # pragma: no cover
@@ -41,7 +42,7 @@ class Strategy:
 
 def nearest_resistance(ctx: Context, above: float) -> float | None:
     lv = []
-    for tf in ("1h", "4h"):
+    for tf in ctx.extras.get("res_tfs", ("1h", "4h")):
         lv += [p for p in ctx.structure.get(tf, {}).get("swing_highs", []) if p > above * 1.002]
     return min(lv) if lv else None
 

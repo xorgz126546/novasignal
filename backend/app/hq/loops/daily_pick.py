@@ -115,22 +115,27 @@ def triggers(contexts: dict) -> list[dict]:
 
 
 # ---------------- daily best pick ----------------
+PROFILE_ORDER = ("swing", "scalp", "invest")
+
+
 async def run_daily_pick(db: Session, client: BinanceClient, notify=None, notify_owner=None, now=None) -> dict:
+    """Best recommendation of the day PER TYPE (swing, scalp, long-term), each at most once per day."""
     now = now or utcnow()
     day = local_day(now)
-    ref = f"pick-{day}"
-    done = db.scalar(select(HQDecision).where(HQDecision.cycle_ref == ref, HQDecision.decision == "SIGNAL"))
-    if done:
-        return {"status": "already_picked", "signal_id": done.signal_id}
     ensure_agents(db)
     cfg = load_config(db)
     risk = cfg.risk
     if cfg.paused:
         return {"status": "paused"}
+    already = {d.cycle_ref.rsplit("-", 1)[-1]: d.signal_id for d in db.scalars(
+        select(HQDecision).where(HQDecision.cycle_ref.like(f"pick-{day}-%"), HQDecision.decision == "SIGNAL"))}
+    todo = [p for p in PROFILE_ORDER if p not in already]
+    if not todo:
+        return {"status": "already_picked", "picks": already}
     signals_today = db.scalar(select(func.count()).select_from(Signal).where(Signal.created_at >= utc_day_start(now))) or 0
     if signals_today >= risk.max_signals_per_day:
-        return {"status": "daily_limit_reached"}
-    bus.publish(db, "cycle_started", "manager", cycle_ref=ref, kind="daily_pick")
+        return {"status": "daily_limit_reached", "picks": already}
+    bus.publish(db, "cycle_started", "manager", cycle_ref=f"pick-{day}", kind="daily_pick")
 
     with runtime.task(db, "scanner", "scan", "Daily pick: scanning a wider USDT universe") as t:
         symbols = await client.exchange_info()
@@ -138,10 +143,11 @@ async def run_daily_pick(db: Session, client: BinanceClient, notify=None, notify
         scan = MarketScanner().run(dict(tickers=tickers, symbols=symbols, min_quote_volume=risk.min_quote_volume_usdt,
                                         excluded_bases=cfg.excluded_bases, shortlist_size=max(risk.shortlist_size, 25)))
         universe = [c.symbol for c in scan.shortlist]
+        qv = {c.symbol: c.quote_volume for c in scan.shortlist}
         t.result = {"summary": f"{len(universe)} markets for the daily pick"}
 
     contexts = {}
-    with runtime.task(db, "structure", "structure", f"Daily pick: 4H/1H/15M structure for {len(universe)} markets") as t:
+    with runtime.task(db, "structure", "structure", f"Daily pick: 1D/4H/1H/15M structure for {len(universe)} markets") as t:
         try:
             btc = await fetch_context(client, "BTCUSDT", symbols.get("BTCUSDT"))
         except MarketDataError:
@@ -151,102 +157,123 @@ async def run_daily_pick(db: Session, client: BinanceClient, notify=None, notify
                 contexts[sym] = await fetch_context(client, sym, symbols.get(sym))
             except MarketDataError:
                 continue
-        for c in contexts.values():
+        for sym, c in contexts.items():
             c.extras["btc_ret_7d"] = btc.features.get("ret_168_1h") if btc else None
+            c.extras["quote_volume_24h"] = qv.get(sym)
         t.result = {"summary": f"{len(contexts)} markets ready"}
 
-    candidates = []  # (final_score, setup, agent, sizing, reasons, ev, raw_score)
-    near_miss = []   # watchlist: valid levels but stopped later
+    from ..profiles import PROFILES, prepare
+
+    candidates: dict[str, list] = {p: [] for p in PROFILE_ORDER}
+    near_miss = []
     open_sigs = list(db.scalars(select(Signal).where(Signal.status.not_in([s.value for s in TERMINAL_STATUSES]))))
     btc_ok = riskmod.btc_filter(btc)
     for act in active_strategies(db):
+        prof = getattr(act.strategy, "profile", "swing")
+        if prof not in todo:
+            continue
         ev = evidence(db, act.strategy.id)
         with runtime.task(db, act.agent_id, "strategy", f"Daily pick: {act.strategy.name} ({ev['grade']})") as t:
             found = 0
             for sym, ctx in contexts.items():
-                r = act.strategy.evaluate(ctx, act.params, risk)
+                prisk = prepare(ctx, act.strategy, risk)
+                if prisk is None:
+                    continue
+                r = act.strategy.evaluate(ctx, act.params, prisk)
                 if isinstance(r, Reject):
                     continue
                 found += 1
-                v = riskmod.assess(r, ctx, risk, btc_ok, len(open_sigs), {x.symbol for x in open_sigs}, signals_today,
+                v = riskmod.assess(r, ctx, prisk, btc_ok, len(open_sigs), {x.symbol for x in open_sigs}, signals_today,
                                    riskmod.is_decoupled(ctx, btc))
-                raw, breakdown = pub.score(r, ctx, risk, pub.agent_level(db, act.agent_id))
+                raw, breakdown = pub.score(r, ctx, prisk, pub.agent_level(db, act.agent_id))
                 if not v.approved:
                     near_miss.append((raw, r, "risk veto: " + "; ".join(v.reasons[-2:])))
                     continue
                 if ev["grade"] == "F":
                     near_miss.append((raw, r, f"strategy excluded: {ev['label']}"))
                     continue
-                dup = pub.is_duplicate(db, r.symbol, r.strategy_id, now, risk.symbol_cooldown_hours)
+                dup = pub.is_duplicate(db, r.symbol, r.strategy_id, now, prisk.symbol_cooldown_hours)
                 if dup:
                     near_miss.append((raw, r, dup))
                     continue
                 final = round(raw * GRADE_FACTOR[ev["grade"]], 2)
-                candidates.append((final, r, act.agent_id, v.sizing, r.reasons + v.reasons, ev, breakdown))
+                candidates[prof].append((final, r, act.agent_id, v.sizing, r.reasons + v.reasons, ev, breakdown, prisk))
             t.result = {"summary": f"{found} setup(s)"}
 
     minimum = float((active_data(db, "daily_pick") or {}).get("min_score", DEFAULT_PICK_MIN_SCORE))
-    candidates.sort(key=lambda c: c[0], reverse=True)
-    with runtime.task(db, "manager", "daily_pick", f"Choosing today's best recommendation from {len(candidates)} candidate(s)") as t:
-        if candidates and candidates[0][0] >= minimum:
-            final, s, agent_id, sizing, reasons, ev, breakdown = candidates[0]
+    picks, quota = [], risk.max_signals_per_day - signals_today
+    used_symbols = {x.symbol for x in open_sigs}
+    with runtime.task(db, "manager", "daily_pick", "Choosing today's best recommendation per type") as t:
+        for prof in todo:
+            ranked = sorted([c for c in candidates[prof] if c[1].symbol not in used_symbols], key=lambda c: c[0], reverse=True)
+            if not ranked or ranked[0][0] < minimum or quota <= 0:
+                if ranked and ranked[0][0] < minimum:
+                    near_miss.append((ranked[0][0], ranked[0][1], f"score {ranked[0][0]:.0f} below daily minimum {minimum:.0f}"))
+                continue
+            final, s, agent_id, sizing, reasons, ev, breakdown, prisk = ranked[0]
+            label = PROFILES[prof]
             ctx = contexts[s.symbol]
             ev_line = (f"Strategy evidence: grade {ev['grade']} — {ev['label']}" +
                        (f" ({ev['trades']} backtest trades, net {ev['expectancy_pct']:+.2f}%/trade)" if ev.get("expectancy_pct") is not None else ""))
-            reasons = ["⭐ DAILY BEST PICK — best of all strategies today", ev_line] + reasons
-            sig = pub.publish(db, s, ctx, risk, sizing, final, {**breakdown, "evidence_grade": ev["grade"]}, reasons, now, ref)
-            sig.agent_outputs = {**sig.agent_outputs, "hq": {**sig.agent_outputs["hq"], "agent_id": agent_id, "daily_pick": True}}
-            db.add(HQDecision(cycle_ref=ref, symbol=s.symbol, decision="SIGNAL", stage="publisher", reasons=reasons[:8],
+            reasons = [f"⭐ DAILY BEST PICK — {label.label_en} / {label.label_ar}", ev_line] + reasons
+            sig = pub.publish(db, s, ctx, prisk, sizing, final, {**breakdown, "evidence_grade": ev["grade"]}, reasons, now, f"pick-{day}-{prof}")
+            sig.agent_outputs = {**sig.agent_outputs, "hq": {**sig.agent_outputs["hq"], "agent_id": agent_id, "daily_pick": True,
+                                                             "profile": prof}}
+            db.add(HQDecision(cycle_ref=f"pick-{day}-{prof}", symbol=s.symbol, decision="SIGNAL", stage="publisher", reasons=reasons[:8],
                               strategy_id=s.strategy_id, score=final, signal_id=sig.id,
                               levels={"entry": s.entry, "stop": s.stop, "take_profit": s.take_profit}))
             db.commit()
-            facts = {"pair": f"{sig.base_asset}/USDT", "entry": sig.entry_price, "take_profit": sig.take_profit,
+            facts = {"type": label.label_en, "pair": f"{sig.base_asset}/USDT", "entry": sig.entry_price, "take_profit": sig.take_profit,
                      "stop_loss": sig.stop_loss, "invalidation": sig.invalidation_price, "risk_pct": sig.risk_pct,
                      "score": final, "strategy": s.strategy_id, "evidence_grade": ev["grade"], "reasons": reasons[:6]}
-            sig.narrative, _ = await llm.write_text(db, "manager", "Explain today's best pick in 3 short sentences (English) "
-                                                    "then 2 in Arabic. Mention the evidence grade honestly. End with: Not financial advice.",
+            sig.narrative, _ = await llm.write_text(db, "manager", "Explain this best pick in 3 short sentences (English) then 2 in "
+                                                    "Arabic. Mention the trade type and the evidence grade honestly. End with: Not financial advice.",
                                                     facts, "daily_pick", "; ".join(reasons[:3]) + ". Not financial advice.", 500)
             db.commit()
-            bus.publish(db, "signal", "publisher", signal_id=sig.id, symbol=sig.symbol, score=final, strategy=s.strategy_id, daily_pick=True)
-            t.result = {"summary": f"daily pick: {sig.symbol} via {s.strategy_id} (score {final})"}
-            out = {"status": "picked", "signal_id": sig.id, "symbol": sig.symbol, "strategy": s.strategy_id, "score": final,
-                   "evidence": ev, "alternatives": [{"symbol": c[1].symbol, "strategy": c[1].strategy_id, "score": c[0]} for c in candidates[1:4]]}
+            bus.publish(db, "signal", "publisher", signal_id=sig.id, symbol=sig.symbol, score=final, strategy=s.strategy_id,
+                        daily_pick=True, profile=prof)
+            picks.append({"profile": prof, "signal_id": sig.id, "symbol": sig.symbol, "strategy": s.strategy_id, "score": final,
+                          "evidence": ev})
+            used_symbols.add(s.symbol)
+            quota -= 1
             if notify:
                 await notify("new_signal", sig)
-            return out
-        # NO TRADE today + watchlist (not recommendations)
-        near_miss.sort(key=lambda x: x[0], reverse=True)
-        watch = [{"symbol": s.symbol, "strategy": s.strategy_id, "entry": s.entry, "why_not": why[:200]} for _, s, why in near_miss[:3]]
-        if candidates:
-            best = candidates[0]
-            watch.insert(0, {"symbol": best[1].symbol, "strategy": best[1].strategy_id, "entry": best[1].entry,
-                             "why_not": f"score {best[0]:.0f} below daily minimum {minimum:.0f}"})
-        db.add(HQDecision(cycle_ref=ref, symbol="*", decision="NO_TRADE", stage="manager",
-                          reasons=[f"NO TRADE today: no setup passed every rule ({len(contexts)} markets × all strategies)"]
-                          + [f"watch {w['symbol']} ({w['strategy']}): {w['why_not']}" for w in watch]))
-        db.commit()
-        trig = triggers(contexts)
-        btc_line = (f"- BTC 7 days: {btc.features['ret_168_1h']:+.2f}% · {btc_ok[1]}" if btc and "ret_168_1h" in btc.features
-                    else f"- {btc_ok[1]}")
-        lines = [f"# Daily pick {day}: NO TRADE", "",
-                 f"All 8 strategies checked {len(contexts)} markets. No setup passed every rule, so there is no recommendation yet.",
-                 btc_line, "I re-check at the next scheduled time today and publish automatically if a valid setup appears.", "",
-                 "## Triggers to watch (conditions, NOT recommendations)",
-                 *([f"- {x['symbol']} — {x['strategy']}: {x['trigger']} ({x['distance_pct']}% away)" for x in trig] or ["- none close"]),
-                 "", "## Near misses", *([f"- {w['symbol']} — {w['strategy']}: {w['why_not']}" for w in watch] or ["- none"]),
-                 "", "_Not financial advice._"]
-        first_today = not db.scalar(select(HQReport).where(HQReport.kind == "daily_pick", HQReport.day == day))
-        rep = save_report(db, "daily_pick", f"Daily pick {day}: NO TRADE", "\n".join(lines),
-                          {"watchlist": watch, "triggers": trig}, "manager")
-        t.result = {"summary": f"NO TRADE; {len(trig)} trigger(s) on watch"}
-    bus.publish(db, "no_trade", "manager", cycle_ref=ref, reasons=[x["trigger"] for x in trig][:3])
-    if first_today:  # one NO TRADE message per day; later re-checks stay silent unless a pick is published
+        t.result = {"summary": f"{len(picks)} pick(s): " + ", ".join(f"{p['profile']} {p['symbol']}" for p in picks) or "none"}
+
+    missing = [p for p in todo if p not in {x["profile"] for x in picks}]
+    if picks and not missing:
+        return {"status": "picked", "picks": picks, **picks[0]}
+    near_miss.sort(key=lambda x: x[0], reverse=True)
+    watch = [{"symbol": s.symbol, "strategy": s.strategy_id, "entry": s.entry, "why_not": why[:200]} for _, s, why in near_miss[:4]]
+    trig = triggers(contexts)
+    btc_line = (f"- BTC 7 days: {btc.features['ret_168_1h']:+.2f}% · {btc_ok[1]}" if btc and "ret_168_1h" in btc.features
+                else f"- {btc_ok[1]}")
+    names = {p: f"{PROFILES[p].label_en} / {PROFILES[p].label_ar}" for p in PROFILE_ORDER}
+    lines = [f"# Daily pick {day}", "",
+             *([f"- ✅ {names[p['profile']]}: {p['symbol']} ({p['strategy']})" for p in picks]),
+             *([f"- ⏸ {names[p]}: NO TRADE — no setup passed every rule" for p in missing]),
+             btc_line, "I re-check at the next scheduled time today and publish automatically if a valid setup appears.", "",
+             "## Triggers to watch (conditions, NOT recommendations)",
+             *([f"- {x['symbol']} — {x['strategy']}: {x['trigger']} ({x['distance_pct']}% away)" for x in trig] or ["- none close"]),
+             "", "## Near misses", *([f"- {w['symbol']} — {w['strategy']}: {w['why_not']}" for w in watch] or ["- none"]),
+             "", "_Not financial advice._"]
+    for p in missing:
+        db.add(HQDecision(cycle_ref=f"pick-{day}-{p}", symbol="*", decision="NO_TRADE", stage="manager",
+                          reasons=[f"NO TRADE ({p}): no setup passed every rule ({len(contexts)} markets)"]
+                          + [f"watch {w['symbol']} ({w['strategy']}): {w['why_not']}" for w in watch[:3]]))
+    db.commit()
+    first_today = not db.scalar(select(HQReport).where(HQReport.kind == "daily_pick", HQReport.day == day))
+    rep = save_report(db, "daily_pick", f"Daily pick {day}: {len(picks)} pick(s), NO TRADE for {', '.join(missing)}",
+                      "\n".join(lines), {"picks": picks, "watchlist": watch, "triggers": trig}, "manager")
+    bus.publish(db, "no_trade", "manager", cycle_ref=f"pick-{day}", reasons=[x["trigger"] for x in trig][:3])
+    if first_today:  # one summary message per day; later re-checks stay silent unless a pick is published
         msg = md_to_telegram("\n".join(lines))
         if notify:
             await notify("text", msg)
         elif notify_owner:
             await notify_owner(msg)
-    return {"status": "no_trade", "report_id": rep.id, "watchlist": watch, "triggers": trig}
+    return {"status": "picked" if picks else "no_trade", "picks": picks, "missing": missing, "report_id": rep.id,
+            "watchlist": watch, "triggers": trig, **(picks[0] if picks else {})}
 
 
 def needs_tournament(db: Session, max_age_days: int = 8) -> bool:

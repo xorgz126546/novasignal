@@ -22,10 +22,20 @@ def pair(sig: Signal) -> str:
     return f"{sig.base_asset}/{sig.quote_asset}" if sig.base_asset else sig.symbol
 
 
+def _type_label(sig: Signal) -> str:
+    prof = ((sig.agent_outputs or {}).get("hq") or {}).get("profile")
+    if not prof and sig.strategy_id:
+        from ..hq.strategies.builtin import BUILTINS
+        st = BUILTINS.get(sig.strategy_id)
+        prof = getattr(st, "profile", None) if st else None
+    return {"scalp": "⚡ Scalp (15m, hours)", "swing": "📈 Swing (1-2 days)", "invest": "🏦 Long-term (weeks)"}.get(prof or "", "")
+
+
 def new_signal(sig: Signal, dashboard_url: str) -> str:
     return "\n".join([
         "<b>CRYPTONEX AI</b>", "<b>NEW SPOT SIGNAL</b>", "",
-        f"Pair: <b>{escape(pair(sig))}</b>", "Action: <b>BUY</b>", "",
+        f"Pair: <b>{escape(pair(sig))}</b>", "Action: <b>BUY</b>",
+        *([f"Type: <b>{escape(_type_label(sig))}</b>"] if _type_label(sig) else []), "",
         f"Entry: {fmt_price(sig.entry_price)}", f"Take Profit: {fmt_price(sig.take_profit)}",
         f"Stop Loss: {fmt_price(sig.stop_loss)}",
         *([f"Invalidation: {fmt_price(sig.invalidation_price)}"] if getattr(sig, "invalidation_price", None) else []),

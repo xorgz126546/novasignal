@@ -122,5 +122,6 @@ class LiquiditySweep(Strategy):
 
 
 from .extra import EXTRA  # noqa: E402  (new strategies: squeeze, donchian, relative strength, oversold, range)
+from .horizons import HORIZON  # noqa: E402  (scalping 15m + long-term investment daily)
 
-BUILTINS: dict[str, Strategy] = {s.id: s for s in (BreakoutRetest(), TrendPullback(), LiquiditySweep(), *EXTRA)}
+BUILTINS: dict[str, Strategy] = {s.id: s for s in (BreakoutRetest(), TrendPullback(), LiquiditySweep(), *EXTRA, *HORIZON)}

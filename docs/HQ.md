@@ -81,6 +81,18 @@ Every candidate becomes a persisted `SIGNAL` or `NO_TRADE` with its stage and re
 - **BTC risk-off:** only *decoupled leaders* (beating BTC by 5%+ over 7 days, in their own 4H uptrend) may pass, and only at **half risk and half position size**.
 - This runs even when `HQ_ENABLED=false` (set `HQ_DAILY_PICK=false` to stop it).
 
+## Three trade types (`hq/profiles.py`)
+
+| Type | Base timeframe | Target | Stop | Min net R:R | Horizon | Strategies |
+|---|---|---|---|---|---|---|
+| ⚡ Scalp | 15m (+1h) | 1–2% | 0.4–0.9% | 1.3 | 8 h | 15m momentum pullback, 15m range breakout (only pairs ≥ 50M USDT/24h) |
+| 📈 Swing | 1h (+4h, 15m) | 3–5% | 0.8–2.5% | 2.0 | 2 days | the 8 swing strategies above |
+| 🏦 Long-term | 1d (+4h) | 12–35% | 5–12% | 2.0 | 60 days | 200-day EMA reclaim, golden cross pullback, bull-market dip |
+
+The daily pick chooses the best setup **per type** (up to 3 a day, the global daily cap). Backtests replay each type on its
+own timeframe (15m ≈ 6 weeks, 1h ≈ 4 months, 1d ≈ 2.7 years).
+Market data is Binance public data and needs no API key; `GET /api/market/live` (Settings page) proves it is live.
+
 ## Reports (`hq/reports.py`)
 
 - **Per-agent daily report:** numbers from the database, problems, proposed solutions, and what the agent needs from you.
