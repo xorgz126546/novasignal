@@ -74,6 +74,7 @@ def jobs() -> list[tuple[str, str]]:
         ("pr_watch", "every 30m"),
         ("daily_pick", f"twice_daily {s.hq_daily_pick_time}"),  # any number of HH:MM times
         ("tournament", "weekly SUN 05:00"),
+        ("learn_outcomes", "every 60m"),  # study closed signals (winners and losers)
     ]
 
 
@@ -81,7 +82,7 @@ def active_jobs() -> list[tuple[str, str]]:
     s = get_settings()
     if s.hq_enabled:
         return jobs()
-    return [j for j in jobs() if s.hq_daily_pick and j[0] in ("daily_pick", "tournament")]
+    return [j for j in jobs() if s.hq_daily_pick and j[0] in ("daily_pick", "tournament", "learn_outcomes")]
 
 
 async def run_job(name: str, db: Session) -> None:
@@ -129,6 +130,9 @@ async def run_job(name: str, db: Session) -> None:
     elif name == "tournament":
         from .loops.daily_pick import run_tournament
         await run_tournament(db, client, notify_owner)
+    elif name == "learn_outcomes":
+        from .loops.learn import learn_from_outcomes
+        await learn_from_outcomes(db, client, notify_owner)
     elif name == "pr_watch":
         from .loops.repair import watch_prs
         await watch_prs(db)

@@ -130,11 +130,9 @@ async def run_daily_pick(db: Session, client: BinanceClient, notify=None, notify
     already = {d.cycle_ref.rsplit("-", 1)[-1]: d.signal_id for d in db.scalars(
         select(HQDecision).where(HQDecision.cycle_ref.like(f"pick-{day}-%"), HQDecision.decision == "SIGNAL"))}
     todo = [p for p in PROFILE_ORDER if p not in already]
-    if not todo:
-        return {"status": "already_picked", "picks": already}
     signals_today = db.scalar(select(func.count()).select_from(Signal).where(Signal.created_at >= utc_day_start(now))) or 0
     if signals_today >= risk.max_signals_per_day:
-        return {"status": "daily_limit_reached", "picks": already}
+        return {"status": "daily_limit_reached" if todo else "already_picked", "picks": already}
     bus.publish(db, "cycle_started", "manager", cycle_ref=f"pick-{day}", kind="daily_pick")
 
     with runtime.task(db, "scanner", "scan", "Daily pick: scanning a wider USDT universe") as t:
@@ -169,9 +167,7 @@ async def run_daily_pick(db: Session, client: BinanceClient, notify=None, notify
     open_sigs = list(db.scalars(select(Signal).where(Signal.status.not_in([s.value for s in TERMINAL_STATUSES]))))
     btc_ok = riskmod.btc_filter(btc)
     for act in active_strategies(db):
-        prof = getattr(act.strategy, "profile", "swing")
-        if prof not in todo:
-            continue
+        prof = getattr(act.strategy, "profile", "swing")  # all types scan: extra picks may come from any type
         ev = evidence(db, act.strategy.id)
         with runtime.task(db, act.agent_id, "strategy", f"Daily pick: {act.strategy.name} ({ev['grade']})") as t:
             found = 0
@@ -203,6 +199,37 @@ async def run_daily_pick(db: Session, client: BinanceClient, notify=None, notify
     minimum = float((active_data(db, "daily_pick") or {}).get("min_score", DEFAULT_PICK_MIN_SCORE))
     picks, quota = [], risk.max_signals_per_day - signals_today
     used_symbols = {x.symbol for x in open_sigs}
+    async def _publish(prof: str, cand: tuple, ref: str, headline: str) -> None:
+        nonlocal quota
+        final, s, agent_id, sizing, reasons, ev, breakdown, prisk = cand
+        label = PROFILES[prof]
+        ctx = contexts[s.symbol]
+        ev_line = (f"Strategy evidence: grade {ev['grade']} — {ev['label']}" +
+                   (f" ({ev['trades']} backtest trades, net {ev['expectancy_pct']:+.2f}%/trade)" if ev.get("expectancy_pct") is not None else ""))
+        reasons = [f"{headline} — {label.label_en} / {label.label_ar}", ev_line] + reasons
+        sig = pub.publish(db, s, ctx, prisk, sizing, final, {**breakdown, "evidence_grade": ev["grade"]}, reasons, now, ref)
+        sig.agent_outputs = {**sig.agent_outputs, "hq": {**sig.agent_outputs["hq"], "agent_id": agent_id, "daily_pick": True,
+                                                         "profile": prof}}
+        db.add(HQDecision(cycle_ref=ref, symbol=s.symbol, decision="SIGNAL", stage="publisher", reasons=reasons[:8],
+                          strategy_id=s.strategy_id, score=final, signal_id=sig.id,
+                          levels={"entry": s.entry, "stop": s.stop, "take_profit": s.take_profit}))
+        db.commit()
+        facts = {"type": label.label_en, "pair": f"{sig.base_asset}/USDT", "entry": sig.entry_price, "take_profit": sig.take_profit,
+                 "stop_loss": sig.stop_loss, "invalidation": sig.invalidation_price, "risk_pct": sig.risk_pct,
+                 "score": final, "strategy": s.strategy_id, "evidence_grade": ev["grade"], "reasons": reasons[:6]}
+        sig.narrative, _ = await llm.write_text(db, "manager", "Explain this pick in 3 short sentences (English) then 2 in "
+                                                "Arabic. Mention the trade type and the evidence grade honestly. End with: Not financial advice.",
+                                                facts, "daily_pick", "; ".join(reasons[:3]) + ". Not financial advice.", 500)
+        db.commit()
+        bus.publish(db, "signal", "publisher", signal_id=sig.id, symbol=sig.symbol, score=final, strategy=s.strategy_id,
+                    daily_pick=True, profile=prof)
+        picks.append({"profile": prof, "signal_id": sig.id, "symbol": sig.symbol, "strategy": s.strategy_id, "score": final,
+                      "evidence": ev, "ref": ref})
+        used_symbols.add(s.symbol)
+        quota -= 1
+        if notify:
+            await notify("new_signal", sig)
+
     with runtime.task(db, "manager", "daily_pick", "Choosing today's best recommendation per type") as t:
         for prof in todo:
             ranked = sorted([c for c in candidates[prof] if c[1].symbol not in used_symbols], key=lambda c: c[0], reverse=True)
@@ -210,37 +237,23 @@ async def run_daily_pick(db: Session, client: BinanceClient, notify=None, notify
                 if ranked and ranked[0][0] < minimum:
                     near_miss.append((ranked[0][0], ranked[0][1], f"score {ranked[0][0]:.0f} below daily minimum {minimum:.0f}"))
                 continue
-            final, s, agent_id, sizing, reasons, ev, breakdown, prisk = ranked[0]
-            label = PROFILES[prof]
-            ctx = contexts[s.symbol]
-            ev_line = (f"Strategy evidence: grade {ev['grade']} — {ev['label']}" +
-                       (f" ({ev['trades']} backtest trades, net {ev['expectancy_pct']:+.2f}%/trade)" if ev.get("expectancy_pct") is not None else ""))
-            reasons = [f"⭐ DAILY BEST PICK — {label.label_en} / {label.label_ar}", ev_line] + reasons
-            sig = pub.publish(db, s, ctx, prisk, sizing, final, {**breakdown, "evidence_grade": ev["grade"]}, reasons, now, f"pick-{day}-{prof}")
-            sig.agent_outputs = {**sig.agent_outputs, "hq": {**sig.agent_outputs["hq"], "agent_id": agent_id, "daily_pick": True,
-                                                             "profile": prof}}
-            db.add(HQDecision(cycle_ref=f"pick-{day}-{prof}", symbol=s.symbol, decision="SIGNAL", stage="publisher", reasons=reasons[:8],
-                              strategy_id=s.strategy_id, score=final, signal_id=sig.id,
-                              levels={"entry": s.entry, "stop": s.stop, "take_profit": s.take_profit}))
-            db.commit()
-            facts = {"type": label.label_en, "pair": f"{sig.base_asset}/USDT", "entry": sig.entry_price, "take_profit": sig.take_profit,
-                     "stop_loss": sig.stop_loss, "invalidation": sig.invalidation_price, "risk_pct": sig.risk_pct,
-                     "score": final, "strategy": s.strategy_id, "evidence_grade": ev["grade"], "reasons": reasons[:6]}
-            sig.narrative, _ = await llm.write_text(db, "manager", "Explain this best pick in 3 short sentences (English) then 2 in "
-                                                    "Arabic. Mention the trade type and the evidence grade honestly. End with: Not financial advice.",
-                                                    facts, "daily_pick", "; ".join(reasons[:3]) + ". Not financial advice.", 500)
-            db.commit()
-            bus.publish(db, "signal", "publisher", signal_id=sig.id, symbol=sig.symbol, score=final, strategy=s.strategy_id,
-                        daily_pick=True, profile=prof)
-            picks.append({"profile": prof, "signal_id": sig.id, "symbol": sig.symbol, "strategy": s.strategy_id, "score": final,
-                          "evidence": ev})
-            used_symbols.add(s.symbol)
-            quota -= 1
-            if notify:
-                await notify("new_signal", sig)
+            await _publish(prof, ranked[0], f"pick-{day}-{prof}", "⭐ DAILY BEST PICK")
+        # Remaining daily quota (owner sets "Max signals / day", up to 5 recommended): next-best setups of ANY type that
+        # pass exactly the same rules and minimum score. Never forced: no qualifying setup → no extra signal.
+        n_extra = sum(1 for k in already if k.startswith("extra"))
+        pool = sorted(((c, prof) for prof in PROFILE_ORDER for c in candidates[prof]), key=lambda x: x[0][0], reverse=True)
+        for c, prof in pool:
+            if quota <= 0:
+                break
+            if c[1].symbol in used_symbols or c[0] < minimum:
+                continue
+            n_extra += 1
+            await _publish(prof, c, f"pick-{day}-extra{n_extra}", f"⭐ EXTRA PICK #{n_extra}")
         t.result = {"summary": f"{len(picks)} pick(s): " + ", ".join(f"{p['profile']} {p['symbol']}" for p in picks) or "none"}
 
     missing = [p for p in todo if p not in {x["profile"] for x in picks}]
+    if not todo and not picks:
+        return {"status": "already_picked", "picks": already}
     if picks and not missing:
         return {"status": "picked", "picks": picks, **picks[0]}
     near_miss.sort(key=lambda x: x[0], reverse=True)

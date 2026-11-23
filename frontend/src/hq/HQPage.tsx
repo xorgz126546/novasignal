@@ -105,6 +105,7 @@ function Controls() {
       <button className="btn-primary" disabled={busy} onClick={() => run("/api/hq/daily-pick", t("best_pick"))}>{t("best_pick")}</button>
       <button className="btn-ghost" disabled={busy} onClick={() => run("/api/hq/cycle", t("run_cycle"))}>{t("run_cycle")}</button>
       <button className="btn-ghost" disabled={busy} onClick={() => run("/api/hq/tournament", t("tournament"))}>{t("tournament")}</button>
+      <button className="btn-ghost" disabled={busy} onClick={() => run("/api/hq/learn-outcomes", t("learn_results"))}>{t("learn_results")}</button>
       <button className="btn-ghost" disabled={busy} onClick={() => run("/api/hq/audit", t("run_audit"))}>{t("run_audit")}</button>
       <button className="btn-ghost" disabled={busy} onClick={() => run("/api/hq/growth", t("run_growth"))}>{t("run_growth")}</button>
       <button className="btn-ghost" disabled={busy} onClick={() => run("/api/hq/brief", t("make_brief"))}>{t("make_brief")}</button>

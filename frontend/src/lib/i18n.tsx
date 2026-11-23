@@ -27,6 +27,7 @@ const D: Record<string, { en: string; ar: string }> = {
   run_cycle: { en: "Run trading cycle", ar: "تشغيل دورة التداول" },
   best_pick: { en: "⭐ Best pick today", ar: "⭐ أفضل توصية اليوم" },
   tournament: { en: "Strategy tournament", ar: "بطولة الاستراتيجيات" },
+  learn_results: { en: "🎓 Learn from results", ar: "🎓 تعلّم من النتائج" },
   leaderboard: { en: "Strategy leaderboard (real backtests)", ar: "ترتيب الاستراتيجيات (اختبار تاريخي حقيقي)" },
   run_audit: { en: "Run auditor", ar: "تشغيل المدقق" },
   run_growth: { en: "Trends + drafts", ar: "ترندات + مسودات" },

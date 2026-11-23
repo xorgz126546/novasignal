@@ -398,6 +398,15 @@ async def daily_pick(admin: User = Depends(require_admin), db: Session = Depends
     return await run_daily_pick(db, get_client(), notify, notify_owner)
 
 
+@router.post("/learn-outcomes")
+async def learn_outcomes(signal_id: int | None = None, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from ..hq.loops.learn import learn_from_outcomes
+    from ..hq.notify import notify_owner
+
+    audit(db, f"user:{admin.id}", "hq_learn_outcomes")
+    return await learn_from_outcomes(db, notify_owner=notify_owner, signal_id=signal_id)
+
+
 @router.post("/tournament")
 async def tournament(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     from ..hq.loops.daily_pick import run_tournament

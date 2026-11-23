@@ -155,7 +155,7 @@ def test_scheduler_runs_only_daily_pick_when_hq_disabled(monkeypatch):
     from app.hq import scheduler
     monkeypatch.setattr(get_settings(), "hq_enabled", False)
     monkeypatch.setattr(get_settings(), "hq_daily_pick", True)
-    assert {n for n, _ in scheduler.active_jobs()} == {"daily_pick", "tournament"}
+    assert {n for n, _ in scheduler.active_jobs()} == {"daily_pick", "tournament", "learn_outcomes"}
     monkeypatch.setattr(get_settings(), "hq_daily_pick", False)
     assert scheduler.active_jobs() == []
     monkeypatch.setattr(get_settings(), "hq_enabled", True)

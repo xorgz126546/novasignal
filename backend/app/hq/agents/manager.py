@@ -17,6 +17,7 @@ log = logging.getLogger("cryptonex.hq.manager")
 
 # (pattern, intent). Arabic + English. Deterministic routing first; the LLM only words the reply.
 INTENTS = [
+    (re.compile(r"\b(learn from|lessons? from|study (the )?(win|result))\w*|تعلم من|تعلّم من|يتعلم|يتعلمو|تتعلم", re.I), "lessons"),
     (re.compile(r"\b(best|pick|recommend\w*)\b|أفضل|توصية|افضل", re.I), "pick"),
     (re.compile(r"\b(tournament|leaderboard|compare strategies)\b|بطولة|ترتيب الاستراتيجيات|قارن", re.I), "tournament"),
     (re.compile(r"^(learn about|research|تعلم عن|تعلّم عن|ابحث عن)\s+(.+)$", re.I), "learn"),
@@ -102,6 +103,12 @@ def _delegate(db: Session, intent: str, arg: str) -> str | None:
 
         _spawn(lambda d: build_brief(d, send=False), "brief")
         return "brief"
+    if intent == "lessons":
+        from ..loops.learn import learn_from_outcomes
+        from ..notify import notify_owner
+
+        _spawn(lambda d: learn_from_outcomes(d, notify_owner=notify_owner), "lessons")
+        return "lessons"
     if intent == "learn":
         from ..loops.upgrade import scout_run
 
@@ -121,6 +128,10 @@ def _delegate(db: Session, intent: str, arg: str) -> str | None:
 
 
 CONFIRM = {
+    "lessons": ("Lina (Librarian) is studying every closed signal: she rebuilds the market fingerprint at signal time, Badr tests a "
+                "'pattern twin' on real history, and anything that passes comes to you for approval. One win alone proves nothing.",
+                "لينا (أمينة المكتبة) تدرس كل توصية أُغلقت: تعيد بناء بصمة السوق لحظة التوصية، وبدر يختبر «نمطًا مشابهًا» على البيانات "
+                "التاريخية الحقيقية، وما ينجح يصلك للموافقة. صفقة رابحة واحدة لا تثبت شيئًا وحدها."),
     "pick": ("All strategy agents are scanning the market now. I'll publish the single best valid setup of the day, or NO TRADE with a watchlist.",
              "كل وكلاء الاستراتيجيات يفحصون السوق الآن. سأنشر أفضل توصية صالحة لليوم، أو NO TRADE مع قائمة مراقبة."),
     "tournament": ("Badr is running the strategy tournament on real history (a few minutes). The leaderboard will appear in Reports.",

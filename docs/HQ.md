@@ -93,6 +93,20 @@ The daily pick chooses the best setup **per type** (up to 3 a day, the global da
 own timeframe (15m ≈ 6 weeks, 1h ≈ 4 months, 1d ≈ 2.7 years).
 Market data is Binance public data and needs no API key; `GET /api/market/live` (Settings page) proves it is live.
 
+## Learning from real results (`hq/loops/learn.py`)
+
+Every hour (and with **🎓 Learn from results**, or by telling Maya "تعلم من هذه التوصية"), each signal that closed
+at TP or SL is studied once:
+1. The market fingerprint at signal time is rebuilt from closed Binance candles: trend structure, RSI, ADX, Bollinger position, 24h return, ATR %.
+2. Winners and losers are both stored as knowledge notes, so the team does not learn only from survivors.
+3. A winner becomes a **pattern twin** rule strategy, tested by the walk-forward gate with fees and out-of-sample checks.
+   - It reaches "Needs you" only if it passes.
+   - It never goes live without your approval.
+   - One winning trade proves nothing alone.
+
+**Daily cap:** set *Max signals / day* in Settings (for example 5). After the best pick per type, the remaining quota is
+filled with the next-best setups that pass **the same** rules and minimum score. Nothing is ever forced to reach the number.
+
 ## Reports (`hq/reports.py`)
 
 - **Per-agent daily report:** numbers from the database, problems, proposed solutions, and what the agent needs from you.
