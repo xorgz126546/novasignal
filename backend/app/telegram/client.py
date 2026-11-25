@@ -37,6 +37,9 @@ class TelegramClient:
     async def answer_callback(self, callback_id: str, text: str = "") -> None:
         await self.call("answerCallbackQuery", callback_query_id=callback_id, text=text)
 
+    async def clear_buttons(self, chat_id: str | int, message_id: int) -> None:
+        await self.call("editMessageReplyMarkup", chat_id=chat_id, message_id=message_id, reply_markup={"inline_keyboard": []})
+
     async def set_webhook(self, url: str, secret: str) -> dict:
         return await self.call("setWebhook", url=url, secret_token=secret, allowed_updates=["message", "callback_query"],
                                drop_pending_updates=True)

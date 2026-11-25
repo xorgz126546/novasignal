@@ -63,7 +63,7 @@ async def test_brief_has_all_sections_and_only_db_numbers(db):
 
 async def test_agent_daily_reports(db):
     out = await reports.write_all_agent_reports(db)
-    assert len(out) == 14  # every agent except the manager reports to the manager
+    assert len(out) == 15  # every agent except the manager reports to the manager
     r = next(x for x in out if x.agent_id == "risk")
     assert "Numbers (from the database)" in r.body_md and "vetoes" in r.body_md
 

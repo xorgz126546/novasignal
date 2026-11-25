@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from ..market import indicators as ta
 from ..market.binance import Candle
 from ..market.structure import bos_choch, swing_highs, swing_lows
+from ..market.tools import ALL_TOOLS, TOOLS, tool_features
 
 TIMEFRAMES = ("1d", "4h", "1h", "15m")
 LOOKBACK = 300  # bars per timeframe used for features (enough for EMA200)
@@ -107,13 +108,16 @@ def tf_features(cs: list[Candle], tf: str) -> tuple[dict[str, float], dict]:
     return f, st
 
 
-def build_features(candles: dict[str, list[Candle]]) -> tuple[dict[str, float], dict[str, dict]]:
+def build_features(candles: dict[str, list[Candle]], tools=ALL_TOOLS) -> tuple[dict[str, float], dict[str, dict]]:
+    """Core features + the requested extra analysis tools (live: all of them; backtests: only what is used)."""
     feats: dict[str, float] = {}
     structure: dict[str, dict] = {}
     for tf in TIMEFRAMES:
         if tf in candles and candles[tf]:
             f, st = tf_features(candles[tf], tf)
             feats.update(f)
+            if tools:
+                feats.update(tool_features(candles[tf][-LOOKBACK:], tf, tools))
             structure[tf] = st
     return feats, structure
 
@@ -123,4 +127,4 @@ FEATURE_NAMES = sorted({f"{name}_{tf}" for tf in TIMEFRAMES for name in (
     "close", "ema9", "ema21", "ema50", "ema200", "rsi", "rsi_change3", "macd_hist", "atr", "atr_pct", "adx",
     "bb_upper", "bb_lower", "bb_pos", "vol_rel", "dist_ema21_pct", "bias", "bos_up_recent", "choch_up_recent",
     "choch_down_recent", "bb_mid", "bb_width", "bb_width_pctile", "squeeze_recent", "donchian_high20", "donchian_low20",
-    "rsi_min6", "ret_168", "ret_24")})
+    "rsi_min6", "ret_168", "ret_24")} | {f"{name}_{tf}" for tf in TIMEFRAMES for t in TOOLS.values() for name in t["features"]})

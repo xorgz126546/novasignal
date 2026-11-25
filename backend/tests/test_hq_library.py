@@ -16,7 +16,7 @@ async def test_library_creates_gated_skills_versions_and_report(db):
     rep = await library.run_library(db, mirror=False)
     assert rep.kind == "weekly" and "What each agent learned" in rep.body_md and "GitHub finds" in rep.body_md
     a = db.get(HQApproval, rep.data["approval_id"])
-    assert a.kind == "skills" and len(a.payload["version_ids"]) == 15
+    assert a.kind == "skills" and len(a.payload["version_ids"]) == 16
     assert versions.active_data(db, "skills:risk") is None  # nothing live before approval
     approvals.approve(db, a.id, "user:1")
     risk_skills = versions.active_data(db, "skills:risk")["text"]

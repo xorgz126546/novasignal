@@ -13,7 +13,23 @@ from ..models import utcnow
 from . import bus, versions
 from .models import HQApproval, HQDraft, HQProposal
 
-KINDS = {"config", "rule_strategy", "prompt", "skills", "fix_pr", "content"}
+KINDS = {"config", "rule_strategy", "prompt", "skills", "fix_pr", "content", "tool"}
+_bg: set = set()
+
+
+def _push_to_owner(approval_id: int) -> None:
+    """Contact the owner on Telegram right away (best effort, never blocks or breaks the caller)."""
+    import asyncio
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    from .notify import send_approval
+
+    t = loop.create_task(send_approval(approval_id))
+    _bg.add(t)
+    t.add_done_callback(_bg.discard)
 
 
 class ApprovalError(ValueError):
@@ -24,7 +40,7 @@ def request(db: Session, kind: str, title: str, summary: str, payload: dict, age
             ref: str | None = None) -> HQApproval:
     if kind not in KINDS:
         raise ApprovalError(f"unknown approval kind {kind}")
-    if kind in ("config", "rule_strategy", "prompt", "skills") and "version_id" not in payload and not payload.get("version_ids"):
+    if kind in ("config", "rule_strategy", "prompt", "skills", "tool") and "version_id" not in payload and not payload.get("version_ids"):
         raise ApprovalError("config-type approvals must reference inactive candidate version(s)")
     if ref:
         existing = db.scalar(select(HQApproval).where(HQApproval.ref == ref))
@@ -38,6 +54,7 @@ def request(db: Session, kind: str, title: str, summary: str, payload: dict, age
         db.rollback()
         return db.scalar(select(HQApproval).where(HQApproval.ref == ref))
     bus.publish(db, "needs_you", "manager", approval_id=a.id, kind=kind, title=a.title)
+    _push_to_owner(a.id)
     return a
 
 
@@ -51,7 +68,7 @@ def approve(db: Session, approval_id: int, actor: str) -> HQApproval:
         raise ApprovalError("approval not found")
     if a.status != "pending":
         raise ApprovalError(f"already {a.status}")
-    if a.kind in ("config", "rule_strategy", "prompt", "skills"):
+    if a.kind in ("config", "rule_strategy", "prompt", "skills", "tool"):
         for vid in a.payload.get("version_ids") or [a.payload["version_id"]]:
             versions.activate_version(db, vid, a.id)
     elif a.kind == "content":

@@ -106,6 +106,7 @@ function Controls() {
       <button className="btn-ghost" disabled={busy} onClick={() => run("/api/hq/cycle", t("run_cycle"))}>{t("run_cycle")}</button>
       <button className="btn-ghost" disabled={busy} onClick={() => run("/api/hq/tournament", t("tournament"))}>{t("tournament")}</button>
       <button className="btn-ghost" disabled={busy} onClick={() => run("/api/hq/learn-outcomes", t("learn_results"))}>{t("learn_results")}</button>
+      <button className="btn-ghost" disabled={busy} onClick={() => run("/api/hq/research", t("research_now"))}>{t("research_now")}</button>
       <button className="btn-ghost" disabled={busy} onClick={() => run("/api/hq/audit", t("run_audit"))}>{t("run_audit")}</button>
       <button className="btn-ghost" disabled={busy} onClick={() => run("/api/hq/growth", t("run_growth"))}>{t("run_growth")}</button>
       <button className="btn-ghost" disabled={busy} onClick={() => run("/api/hq/brief", t("make_brief"))}>{t("make_brief")}</button>
@@ -296,6 +297,25 @@ function Reports() {
   );
 }
 
+function Tools() {
+  const { t, lang } = useLang();
+  const { data } = useFetch<any[]>("/api/hq/tools", 30000);
+  if (!data) return null;
+  return (
+    <div className="card card-pad">
+      <div className="text-sm font-semibold mb-2">{t("tools_title")}</div>
+      <div className="flex flex-wrap gap-2">
+        {data.map((x) => (
+          <span key={x.id} className={`text-xs px-2 py-1 rounded-lg border ${x.unlocked ? "border-up/40 text-up" : "border-graphite-600 text-zinc-400"}`}>
+            {x.unlocked ? "✅" : "🔒"} {lang === "ar" ? x.ar : x.en}
+          </span>
+        ))}
+      </div>
+      <p className="text-[11px] text-zinc-500 mt-2">{t("tools_note")}</p>
+    </div>
+  );
+}
+
 function Knowledge() {
   const { t } = useLang();
   const k = useFetch<any[]>("/api/hq/knowledge");
@@ -305,9 +325,10 @@ function Knowledge() {
   const [msg, setMsg] = useState<string | null>(null);
   return (
     <div className="space-y-4">
+      <Tools />
       <div className="flex gap-2">
         <input className="input" placeholder={t("learn")} value={topic} onChange={(e) => setTopic(e.target.value)} dir="auto" />
-        <button className="btn-primary" onClick={async () => { setMsg("…"); try { const r = await api<any>("/api/hq/scout", { method: "POST", json: { topic } }); setMsg(`${r.knowledge_ids.length} note(s)`); k.reload(); p.reload(); } catch (e: any) { setMsg(e.message); } }}>{t("send")}</button>
+        <button className="btn-primary" onClick={async () => { setMsg("…"); try { const r = await api<any>(`/api/hq/research?topic=${encodeURIComponent(topic)}`, { method: "POST" }); setMsg(`${r.repos.length} repo(s) · ${r.tested.length} idea(s) tested`); k.reload(); p.reload(); } catch (e: any) { setMsg(e.message); } }}>{t("send")}</button>
         <button className="btn-ghost shrink-0" onClick={() => download("/api/hq/provenance.md", "PROVENANCE.md")}>PROVENANCE.md</button>
       </div>
       {msg && <p className="text-xs text-zinc-400">{msg}</p>}

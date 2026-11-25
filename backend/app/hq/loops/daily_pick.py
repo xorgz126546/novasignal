@@ -31,6 +31,7 @@ from ..registry import ensure_agents
 from ..reports import local_day, md_to_telegram, save_report
 from ..strategies.base import Reject
 from ..strategies.registry import active_strategies
+from .regime import fmt_radar, strongest
 from ..versions import active_data
 
 log = logging.getLogger("cryptonex.hq.daily_pick")
@@ -269,6 +270,8 @@ async def run_daily_pick(db: Session, client: BinanceClient, notify=None, notify
              "## Triggers to watch (conditions, NOT recommendations)",
              *([f"- {x['symbol']} — {x['strategy']}: {x['trigger']} ({x['distance_pct']}% away)" for x in trig] or ["- none close"]),
              "", "## Near misses", *([f"- {w['symbol']} — {w['strategy']}: {w['why_not']}" for w in watch] or ["- none"]),
+             "", "## 💪 Strongest vs BTC, 7 days (watch for when the market turns — NOT recommendations)",
+             *fmt_radar(strongest(contexts, btc.features.get("ret_168_1h") if btc else None)),
              "", "_Not financial advice._"]
     for p in missing:
         db.add(HQDecision(cycle_ref=f"pick-{day}-{p}", symbol="*", decision="NO_TRADE", stage="manager",

@@ -33,9 +33,15 @@ def active_strategies(db: Session) -> list[ActiveStrategy]:
         if override.get("enabled", True) is False:
             continue
         out.append(ActiveStrategy(strat, {**strat.default_params, **override.get("params", {})}, owners[sid]))
+    from ..tools_registry import unlocked
+
+    tools_on = unlocked(db)
     for v in active_by_prefix(db, "rule_strategy:"):
         spec = RuleSpec.model_validate(v.data["spec"])
-        out.append(ActiveStrategy(RuleStrategy(v.key.split(":", 1)[1], spec), {}, v.data.get("owner_agent", "scout")))
+        rs = RuleStrategy(v.key.split(":", 1)[1], spec)
+        if not rs.tools <= tools_on:
+            continue  # uses an analysis tool the owner has not approved (or rolled back) → stays off
+        out.append(ActiveStrategy(rs, {}, v.data.get("owner_agent", "scout")))
     return out
 
 

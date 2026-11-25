@@ -194,11 +194,23 @@ def _baseline(db: Session) -> dict | None:
     return best
 
 
-async def process_proposal(db: Session, client: BinanceClient, p: HQProposal, universe: list[str] | None = None) -> dict:
-    """Gate → candidate version → Manager summary → approval request. Returns a status dict."""
+def promising(gate_res: dict) -> bool:
+    """Not proven, but honest evidence of a positive edge after fees: enough trades, positive overall AND out-of-sample."""
+    s, oos = gate_res.get("summary") or {}, (gate_res.get("walk_forward") or {}).get("oos") or {}
+    return (s.get("trades") or 0) >= 15 and (s.get("expectancy_pct") or 0) > 0 and (oos.get("expectancy_pct") or 0) > 0 \
+        and (oos.get("trades") or 0) >= 5
+
+
+async def process_proposal(db: Session, client: BinanceClient, p: HQProposal, universe: list[str] | None = None,
+                           allow_promising: bool = False) -> dict:
+    """Gate → candidate version → Manager summary → approval request. Returns a status dict.
+    allow_promising: also ask the owner about ideas that did not pass every check but show a positive edge after fees
+    in-sample AND out-of-sample (clearly labelled 'promising, not proven')."""
     p.status = "testing"
     db.commit()
     gate_res = None
+    extra_versions: list[int] = []
+    tools_needed: list[str] = []
     if p.kind == "rule_strategy":
         spec = RuleSpec.model_validate(p.spec["rule_spec"])
         run = await run_gate(db, client, RuleStrategy(p.spec["slug"], spec), {}, f"rule:{p.spec['slug']}@p{p.id}", p,
@@ -206,6 +218,10 @@ async def process_proposal(db: Session, client: BinanceClient, p: HQProposal, un
         gate_res = run.result
         key, data = f"rule_strategy:{p.spec['slug']}", {"spec": p.spec["rule_spec"], "owner_agent": p.agent_id,
                                                        "proposal_id": p.id, "knowledge_id": p.knowledge_id}
+        from ..strategies.rules import spec_tools
+        from ..tools_registry import unlocked
+
+        tools_needed = sorted(spec_tools(spec) - unlocked(db))
     elif p.kind == "parameter":
         strat = BUILTINS[p.spec["strategy_id"]]
         base_run = await run_gate(db, client, strat, strat.default_params, f"strategy:{strat.id}@baseline", None, None, universe)
@@ -222,28 +238,48 @@ async def process_proposal(db: Session, client: BinanceClient, p: HQProposal, un
         gate_res = p.gate
     else:
         return {"status": "ignored"}
+    label = "passed"
     if not gate_res.get("passed"):
-        bus.publish(db, "proposal_failed", "backtester", proposal_id=p.id, title=p.title, reasons=gate_res.get("reasons", [])[:5])
-        return {"status": "failed", "reasons": gate_res.get("reasons")}
+        if not (allow_promising and p.kind == "rule_strategy" and promising(gate_res)):
+            bus.publish(db, "proposal_failed", "backtester", proposal_id=p.id, title=p.title, reasons=gate_res.get("reasons", [])[:5])
+            return {"status": "failed", "reasons": gate_res.get("reasons")}
+        label = "promising"
+        p.status = "promising"
     v = versions.create_candidate(db, key, data, p.agent_id, note=p.title)
+    for t in tools_needed:
+        extra_versions.append(versions.create_candidate(db, f"tool:{t}", {"enabled": True, "proposal_id": p.id}, p.agent_id,
+                                                        note=f"unlock tool {t} for {p.title}").id)
     db.commit()
     s = gate_res.get("summary") or {}
     facts = {"title": p.title, "kind": p.kind, "trades": s.get("trades"), "win_rate": s.get("win_rate"),
              "expectancy_pct": s.get("expectancy_pct"), "max_drawdown_pct": s.get("max_drawdown_pct"),
              "oos": (gate_res.get("walk_forward") or {}).get("oos"), "variants_tried": gate_res.get("variants_tried"),
              "checks": gate_res.get("checks")}
-    fallback = (f"اقتراح جديد: «{p.title}». نجح في اختبار الـ walk-forward ({s.get('trades', 0)} صفقة). "
-                "إذا وافقت سيتم تفعيله كنسخة جديدة ويمكنك التراجع بضغطة واحدة.")
+    facts["evidence_label"] = label
+    facts["new_tools"] = tools_needed
+    if label == "passed":
+        fallback = (f"اقتراح جديد: «{p.title}». نجح في اختبار الـ walk-forward ({s.get('trades', 0)} صفقة، "
+                    f"{s.get('expectancy_pct')}% للصفقة بعد العمولات). إذا وافقت سيتم تفعيله كنسخة جديدة ويمكنك التراجع بضغطة واحدة.")
+    else:
+        fallback = (f"فكرة واعدة لكن غير مثبتة: «{p.title}». على البيانات الحقيقية: {s.get('trades', 0)} صفقة، "
+                    f"{s.get('expectancy_pct')}% للصفقة بعد العمولات، وإيجابية أيضًا على الفترة غير المختبرة، لكنها لم تنجح في كل "
+                    "فحوص البوابة. القرار لك؛ يمكنك التراجع بضغطة واحدة.")
+    if tools_needed:
+        fallback += " تحتاج أداة تحليل جديدة: " + "، ".join(tools_needed) + "."
     summary, _ = await llm.write_text(db, "manager", "Summarise this proposal for the owner in plain Arabic, max 4 short "
-                                      "sentences: what it is, the test result, the risk. No promises.", facts, "proposal_summary",
+                                      "sentences: what it is, the test result (say clearly if it is only 'promising, not proven'), "
+                                      "any new analysis tool it needs, the risk. No promises.", facts, "proposal_summary",
                                       fallback, 400)
-    a = approvals.request(db, p.kind if p.kind in ("rule_strategy", "prompt") else "config", f"[{p.kind}] {p.title}", summary,
-                          {"version_id": v.id, "proposal_id": p.id, "key": key, "gate": {"checks": gate_res.get("checks"),
-                                                                                         "summary": s}},
+    kind = "tool" if tools_needed else (p.kind if p.kind in ("rule_strategy", "prompt") else "config")
+    title = (f"[{'tool + ' if tools_needed else ''}{p.kind}{' · promising, not proven' if label == 'promising' else ''}] {p.title}")
+    a = approvals.request(db, kind, title, summary,
+                          {"version_id": v.id, "version_ids": [v.id, *extra_versions], "proposal_id": p.id, "key": key,
+                           "tools": tools_needed, "evidence": label, "source_url": (p.spec or {}).get("source_url"),
+                           "gate": {"checks": gate_res.get("checks"), "summary": s}},
                           [p.agent_id, "backtester"], ref=f"proposal:{p.id}")
     p.approval_id = a.id
     db.commit()
-    return {"status": "awaiting_approval", "approval_id": a.id, "version_id": v.id}
+    return {"status": "awaiting_approval", "approval_id": a.id, "version_id": v.id, "evidence": label, "tools": tools_needed}
 
 
 def provenance_md(db: Session) -> str:

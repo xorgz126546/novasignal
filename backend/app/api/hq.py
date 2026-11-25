@@ -398,6 +398,22 @@ async def daily_pick(admin: User = Depends(require_admin), db: Session = Depends
     return await run_daily_pick(db, get_client(), notify, notify_owner)
 
 
+@router.post("/research")
+async def research(topic: str | None = None, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from ..hq.loops.research import research_run
+    from ..hq.notify import notify_owner
+
+    audit(db, f"user:{admin.id}", "hq_research", topic=topic)
+    return await research_run(db, topic=topic, notify_owner=notify_owner)
+
+
+@router.get("/tools")
+def tools(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from ..hq.tools_registry import status
+
+    return status(db)
+
+
 @router.post("/learn-outcomes")
 async def learn_outcomes(signal_id: int | None = None, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     from ..hq.loops.learn import learn_from_outcomes

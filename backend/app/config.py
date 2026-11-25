@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     hq_brief_hour: int = 8
     hq_library_weekday: int = 4  # 0=Mon … 4=Fri
     hq_scan_interval_minutes: int = 30
+    hq_research: bool = True  # Hadi researches GitHub even when HQ_ENABLED=false
+    hq_research_interval_minutes: int = 360
     hq_daily_pick: bool = True  # daily best recommendation + weekly tournament run even if HQ_ENABLED is false
     hq_daily_pick_time: str = "09:00,13:00,17:00,21:00"  # local HQ timezone; re-checks until the day's pick is found
 

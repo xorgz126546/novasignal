@@ -13,7 +13,7 @@ from .models import HQAgent
 
 CONFIG = Path(__file__).parent / "config" / "agents.yaml"
 PROMPTS = Path(__file__).parent / "prompts"
-MAX_AGENTS = 15
+MAX_AGENTS = 16
 LEVEL_THRESHOLDS = [0, 50, 150, 300, 500, 800, 1200, 1700, 2300, 3000]  # XP needed for Lv1..Lv10
 
 

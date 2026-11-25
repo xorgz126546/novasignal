@@ -58,6 +58,52 @@ def put_prefs(body: PrefsIn, user: User = Depends(get_current_user), db: Session
     return user.notification_prefs
 
 
+class GoalIn(BaseModel):
+    start_capital_usdt: float = Field(gt=0, le=1e9)
+    goal_usdt: float = Field(gt=0, le=1e10)
+
+
+def goal_status(db: Session, user: User) -> dict:
+    """Progress toward the user's own money goal, ONLY from trades the user reported (ENTERED → CLOSED with real exit)."""
+    from sqlalchemy import select
+
+    from ..models import AppSetting, UserTrade
+
+    row = db.get(AppSetting, f"goal:{user.id}")
+    g = dict(row.value) if row else {}
+    trades = list(db.scalars(select(UserTrade).where(UserTrade.user_id == user.id, UserTrade.status == "CLOSED")))
+    pnl = sum(t.realized_pnl or 0.0 for t in trades)
+    out = {"configured": bool(g), "start_capital_usdt": g.get("start_capital_usdt"), "goal_usdt": g.get("goal_usdt", 8000.0),
+           "realized_pnl_usdt": round(pnl, 2), "closed_trades": len(trades),
+           "wins": sum(1 for t in trades if (t.realized_pnl or 0) > 0),
+           "note": "Only trades you reported with ✅ ENTERED and 🏁 CLOSED count. No projection, no promise."}
+    if g:
+        cur = g["start_capital_usdt"] + pnl
+        span = g["goal_usdt"] - g["start_capital_usdt"]
+        out.update(current_usdt=round(cur, 2), remaining_usdt=round(max(g["goal_usdt"] - cur, 0), 2),
+                   progress_pct=round(min(max((cur - g["start_capital_usdt"]) / span * 100, 0), 100), 1) if span > 0 else 100.0)
+    return out
+
+
+@router.get("/goal")
+def get_goal(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return goal_status(db, user)
+
+
+@router.put("/goal")
+def put_goal(body: GoalIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from ..models import AppSetting
+
+    key = f"goal:{user.id}"
+    row = db.get(AppSetting, key)
+    if row:
+        row.value = body.model_dump()
+    else:
+        db.add(AppSetting(key=key, value=body.model_dump()))
+    db.commit()
+    return goal_status(db, user)
+
+
 class ProfileIn(BaseModel):
     display_name: str = Field(max_length=120)
 

@@ -21,6 +21,7 @@ INTENTS = [
     (re.compile(r"\b(best|pick|recommend\w*)\b|أفضل|توصية|افضل", re.I), "pick"),
     (re.compile(r"\b(tournament|leaderboard|compare strategies)\b|بطولة|ترتيب الاستراتيجيات|قارن", re.I), "tournament"),
     (re.compile(r"^(learn about|research|تعلم عن|تعلّم عن|ابحث عن)\s+(.+)$", re.I), "learn"),
+    (re.compile(r"\b(research|new tools?|github)\b|باحث|ابحث|أدوات|ادوات|اداة|أداة", re.I), "research"),
     (re.compile(r"\b(scan|analy[sz]e market)\b|افحص|حلل السوق|فحص", re.I), "scan"),
     (re.compile(r"\b(brief|morning)\b|موجز|ملخص الصباح", re.I), "brief"),
     (re.compile(r"\b(report|reports)\b|تقرير|تقارير", re.I), "report"),
@@ -110,10 +111,17 @@ def _delegate(db: Session, intent: str, arg: str) -> str | None:
         _spawn(lambda d: learn_from_outcomes(d, notify_owner=notify_owner), "lessons")
         return "lessons"
     if intent == "learn":
-        from ..loops.upgrade import scout_run
+        from ..loops.research import research_run
+        from ..notify import notify_owner
 
-        _spawn(lambda d: scout_run(d, topic=arg), "learn")
+        _spawn(lambda d: research_run(d, topic=arg, notify_owner=notify_owner), "learn")
         return "learn"
+    if intent == "research":
+        from ..loops.research import research_run
+        from ..notify import notify_owner
+
+        _spawn(lambda d: research_run(d, notify_owner=notify_owner), "research")
+        return "research"
     if intent == "growth":
         from ..loops.growth import run_growth
 
@@ -140,8 +148,10 @@ CONFIRM = {
              "طلبت من سامي (الماسح) ونورا (الهيكل) ووكلاء الاستراتيجيات الثلاثة ورامي (المخاطر) تشغيل دورة كاملة على بيانات Binance الحقيقية. تابع المكتب؛ ستصلك إشارة أو NO TRADE مع الأسباب."),
     "brief": ("I'm writing your brief now. It will appear in Reports in a moment.",
               "أكتب لك الموجز الآن، سيظهر في التقارير بعد لحظات."),
-    "learn": ("Sora (GitHub Scout) is researching that now. Anything useful becomes a knowledge note; any proposal must pass Badr's backtest gate and your approval.",
-              "سورا (كشافة GitHub) تبحث الآن. أي فكرة مفيدة تصبح ملاحظة معرفة، وأي اقتراح يجب أن ينجح في اختبار بدر ثم موافقتك."),
+    "learn": ("Hadi (Opportunity Researcher) is researching that on GitHub now. Every idea becomes our own rule, Badr tests it on real history, and anything worth it reaches you on Telegram with Approve/Reject buttons.",
+              "هادي (باحث الفرص) يبحث عن ذلك في GitHub الآن. كل فكرة تتحول إلى قاعدة خاصة بنا، يختبرها بدر على البيانات الحقيقية، وما يستحق يصلك في Telegram مع زر موافق/رفض."),
+    "research": ("Hadi (Opportunity Researcher) is searching GitHub for techniques and analysis tools that could bring more valid opportunities. Results come to you on Telegram; nothing goes live without your ✅.",
+                 "هادي (باحث الفرص) يبحث الآن في GitHub عن تقنيات وأدوات تحليل تجلب فرصًا صالحة أكثر. النتائج تصلك في Telegram، ولا شيء يُفعَّل بدون ✅ منك."),
     "growth": ("Tariq is collecting trends and Celine will prepare drafts for your approval. Nothing is posted automatically.",
                "طارق يجمع الترندات وسيلين ستجهّز مسودات لموافقتك. لا يُنشر شيء تلقائيًا."),
     "library": ("Lina is running the Library session: lessons and skill updates will come to you for approval.",

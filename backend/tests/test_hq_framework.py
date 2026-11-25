@@ -27,7 +27,7 @@ def admin_headers(c):
 # ---------- registry ----------
 def test_registry_has_15_agents_with_prompts_and_tools():
     defs = registry.load_defs()
-    assert len(defs) == 15 and "manager" in defs
+    assert len(defs) == 16 and "manager" in defs
     assert {d.room for d in defs.values()} >= {"scanner_floor", "strategy_lab", "risk_office", "backtest_lab", "library",
                                                "engineering", "content_studio", "manager_office"}
     for d in defs.values():
@@ -38,7 +38,7 @@ def test_registry_has_15_agents_with_prompts_and_tools():
 
 def test_ensure_agents_and_tool_unlock_by_level(db):
     registry.ensure_agents(db)
-    assert db.query(HQAgent).count() == 15
+    assert db.query(HQAgent).count() == 16
     assert registry.can_use(db, "trend_hunter", "binance_tickers")
     assert not registry.can_use(db, "trend_hunter", "github_trending")  # needs Lv2
     db.get(HQAgent, "trend_hunter").level = 2
@@ -195,7 +195,7 @@ def test_manager_chat_without_llm_uses_templates(client):
     assert r.status_code == 200 and "الفريق" in r.json()["text"]
     hist = client.get("/api/hq/chat", headers=h).json()
     assert [m["role"] for m in hist] == ["owner", "manager"]
-    assert len(client.get("/api/hq/agents", headers=h).json()) == 15
+    assert len(client.get("/api/hq/agents", headers=h).json()) == 16
     d = client.get("/api/hq/agents/manager", headers=h).json()
     assert d["tasks"] and d["tasks"][0]["kind"] == "chat"
 

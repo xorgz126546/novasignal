@@ -75,6 +75,8 @@ def jobs() -> list[tuple[str, str]]:
         ("daily_pick", f"twice_daily {s.hq_daily_pick_time}"),  # any number of HH:MM times
         ("tournament", "weekly SUN 05:00"),
         ("learn_outcomes", "every 60m"),  # study closed signals (winners and losers)
+        ("research", f"every {s.hq_research_interval_minutes}m"),  # Hadi: GitHub opportunity research
+        ("regime_watch", "every 30m"),  # BTC risk-on/off flips → owner alert + immediate re-check
     ]
 
 
@@ -82,7 +84,10 @@ def active_jobs() -> list[tuple[str, str]]:
     s = get_settings()
     if s.hq_enabled:
         return jobs()
-    return [j for j in jobs() if s.hq_daily_pick and j[0] in ("daily_pick", "tournament", "learn_outcomes")]
+    always = {"daily_pick", "tournament", "learn_outcomes", "regime_watch"} if s.hq_daily_pick else set()
+    if s.hq_research:
+        always |= {"research"}
+    return [j for j in jobs() if j[0] in always]
 
 
 async def run_job(name: str, db: Session) -> None:
@@ -133,6 +138,16 @@ async def run_job(name: str, db: Session) -> None:
     elif name == "learn_outcomes":
         from .loops.learn import learn_from_outcomes
         await learn_from_outcomes(db, client, notify_owner)
+    elif name == "regime_watch":
+        from .loops.daily_pick import run_daily_pick
+        from .loops.regime import regime_watch
+
+        async def recheck():
+            await run_daily_pick(db, client, notify, notify_owner)
+        await regime_watch(db, client, notify_owner, recheck)
+    elif name == "research":
+        from .loops.research import research_run
+        await research_run(db, client=client, notify_owner=notify_owner)
     elif name == "pr_watch":
         from .loops.repair import watch_prs
         await watch_prs(db)
@@ -170,7 +185,7 @@ async def _loop() -> None:
 def start() -> None:
     global _task
     s = get_settings()
-    if _task is None and (s.hq_enabled or s.hq_daily_pick):
+    if _task is None and (s.hq_enabled or s.hq_daily_pick or s.hq_research):
         _task = asyncio.get_running_loop().create_task(_loop())
         log.info("HQ scheduler started (%s)", get_settings().hq_timezone)
 

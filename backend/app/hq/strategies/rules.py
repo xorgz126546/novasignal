@@ -62,12 +62,21 @@ class RuleSpec(BaseModel):
     quality: float = Field(0.65, ge=0.3, le=0.9)
 
 
+def spec_tools(spec: RuleSpec) -> set[str]:
+    """Extra analysis tools a rule needs (each must be approved by the owner before the rule can trade live)."""
+    from ...market.tools import tool_of
+
+    names = [c.left for c in spec.conditions] + [c.right for c in spec.conditions if isinstance(c.right, str)]
+    return {t for t in (tool_of(n) for n in names) if t}
+
+
 class RuleStrategy(Strategy):
     def __init__(self, slug: str, spec: RuleSpec):
         self.id = f"rule:{slug}"
         self.name = spec.name
         self.spec = spec
         self.default_params = {}
+        self.tools = spec_tools(spec)
 
     def evaluate(self, ctx: Context, p: dict, risk: RiskConfig) -> Setup | Reject:
         f = ctx.features

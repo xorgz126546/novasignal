@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
+import { api } from "../lib/api";
 import { Badge, Empty, ErrorBox, Loading, PageHeader, Section, Stat } from "../components/ui";
 import { ago, pct, price, rate, ratio, signClass } from "../lib/format";
 import { useFetch } from "../lib/useFetch";
@@ -8,6 +10,40 @@ const TRACKS: [string, string, string][] = [
   ["paper", "Paper trading", "Simulated fees, slippage, delay"],
   ["actual", "Your actual trades", "User-confirmed fills only"],
 ];
+
+function GoalCard() {
+  const { data, reload } = useFetch<any>("/api/settings/goal", 60000);
+  const [edit, setEdit] = useState(false);
+  const [f, setF] = useState({ start_capital_usdt: "", goal_usdt: "8000" });
+  const [err, setErr] = useState<string | null>(null);
+  if (!data) return null;
+  const save = async () => {
+    setErr(null);
+    try {
+      await api("/api/settings/goal", { method: "PUT", json: { start_capital_usdt: Number(f.start_capital_usdt), goal_usdt: Number(f.goal_usdt) } });
+      setEdit(false); reload();
+    } catch (e: any) { setErr(e.message); }
+  };
+  return (
+    <Section title="🎯 Your goal" right={<button className="text-xs text-zinc-400 hover:text-accent" onClick={() => setEdit(!edit)}>{edit ? "Cancel" : data.configured ? "Edit" : "Set goal"}</button>}>
+      {edit || !data.configured ? (
+        <div className="grid sm:grid-cols-3 gap-3 items-end">
+          <label><span className="label">Starting capital (USDT)</span><input type="number" className="input mt-1 num" value={f.start_capital_usdt} onChange={(e) => setF({ ...f, start_capital_usdt: e.target.value })} /></label>
+          <label><span className="label">Goal (USDT)</span><input type="number" className="input mt-1 num" value={f.goal_usdt} onChange={(e) => setF({ ...f, goal_usdt: e.target.value })} /></label>
+          <button className="btn-primary" disabled={!Number(f.start_capital_usdt)} onClick={save}>Save</button>
+          {err && <p className="text-xs text-down sm:col-span-3">{err}</p>}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <div className="flex justify-between text-sm"><span className="num">{data.current_usdt.toLocaleString()} USDT</span><span className="text-zinc-400 num">goal {data.goal_usdt.toLocaleString()} USDT</span></div>
+          <div className="h-3 rounded-full bg-graphite-800 overflow-hidden"><div className="h-full bg-up" style={{ width: `${data.progress_pct}%` }} /></div>
+          <div className="text-xs text-zinc-400 num">{data.progress_pct}% · realized P/L {data.realized_pnl_usdt >= 0 ? "+" : ""}{data.realized_pnl_usdt} USDT · {data.closed_trades} closed trades ({data.wins} wins) · {data.remaining_usdt.toLocaleString()} USDT to go</div>
+        </div>
+      )}
+      <p className="text-[11px] text-zinc-500 mt-2">{data.note} Not financial advice.</p>
+    </Section>
+  );
+}
 
 export default function Overview() {
   const { data, error, loading } = useFetch<any>("/api/overview", 30000);
@@ -26,6 +62,8 @@ export default function Overview() {
         <Stat label="Paper win rate" value={rate(paper.win_rate)} sub={`${paper.trades} closed · loss rate ${rate(paper.loss_rate)}`} />
         <Stat label="Paper net expectancy" value={pct(paper.expectancy_pct)} tone={signClass(paper.expectancy_pct)} sub="per trade, after fees & slippage" />
       </div>
+
+      <GoalCard />
 
       <div className="grid lg:grid-cols-3 gap-4">
         {TRACKS.map(([k, label, sub]) => {

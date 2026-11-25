@@ -106,9 +106,55 @@ def _perf_text(db: Session, user: User) -> str:
     return "\n".join(lines)
 
 
+async def _decide_approval(db: Session, cq: dict, client: TelegramClient, action: str, approval_id: int) -> None:
+    """Approve / Reject from Telegram. Only a linked, active ADMIN may decide, whatever chat the button is in."""
+    from ..hq import approvals
+    from ..security import audit
+
+    clicker = str((cq.get("from") or {}).get("id", ""))
+    admin = db.scalar(select(User).where(User.telegram_chat_id == clicker, User.role == "admin", User.is_active.is_(True)))
+    if not clicker or not admin:
+        await client.answer_callback(cq["id"], "Only the owner (a linked admin account) can decide.")
+        return
+    try:
+        if action == "ap":
+            a = approvals.approve(db, approval_id, f"telegram:user:{admin.id}")
+            reply = f"✅ Approved #{a.id}: {html.escape(a.title[:200])}\nIt is live now as a new version (rollback: dashboard → HQ → Versions)."
+        else:
+            a = approvals.reject(db, approval_id, f"telegram:user:{admin.id}", "rejected from Telegram")
+            reply = f"❌ Rejected #{a.id}: {html.escape(a.title[:200])}\nThe lesson is kept; nothing changed."
+        audit(db, f"user:{admin.id}", "hq_approve" if action == "ap" else "hq_reject", approval_id=a.id, kind=a.kind, via="telegram")
+    except approvals.ApprovalError as e:
+        await client.answer_callback(cq["id"], str(e)[:190])
+        return
+    await client.answer_callback(cq["id"], "Done")
+    msg = cq.get("message") or {}
+    try:
+        if msg.get("message_id"):
+            await client.clear_buttons(msg["chat"]["id"], msg["message_id"])
+    except TelegramError:
+        pass
+    await client.send_message(str(msg.get("chat", {}).get("id", clicker)), reply)
+
+
+async def _send_pending(db: Session, chat_id: str, client: TelegramClient) -> None:
+    from ..hq import approvals
+    from ..hq.notify import approval_card, approval_keyboard
+
+    items = approvals.pending(db)
+    if not items:
+        await client.send_message(chat_id, "Nothing needs you right now. ✅")
+        return
+    for a in items[-10:]:
+        await client.send_message(chat_id, approval_card(a), approval_keyboard(a.id))
+
+
 async def handle_update(db: Session, update: dict, client: TelegramClient) -> None:
     s = get_settings()
     if cq := update.get("callback_query"):
+        if m := re.fullmatch(r"(ap|rj):(\d+)", cq.get("data", "")):
+            await _decide_approval(db, cq, client, m.group(1), int(m.group(2)))
+            return
         chat_id = str(cq["message"]["chat"]["id"])
         user = db.scalar(select(User).where(User.telegram_chat_id == chat_id))
         if not user:
@@ -223,6 +269,18 @@ async def handle_update(db: Session, update: dict, client: TelegramClient) -> No
         prefs = user.notification_prefs or {}
         await client.send_message(chat_id, "Notification preferences are managed in the dashboard (Settings).\n"
                                            f"Current: {prefs or 'defaults (all on)'}\n{s.public_base_url}/settings")
+    elif cmd == "/goal":
+        from ..api.settings import goal_status
+
+        g = goal_status(db, user)
+        if not g["configured"]:
+            await client.send_message(chat_id, f"Set your starting capital and goal on the dashboard Overview: {s.public_base_url}")
+        else:
+            await client.send_message(chat_id, f"🎯 Goal {g['goal_usdt']:,.0f} USDT\nNow: {g['current_usdt']:,.2f} USDT ({g['progress_pct']}%)\n"
+                                               f"Realized P/L: {g['realized_pnl_usdt']:+,.2f} USDT from {g['closed_trades']} reported trades\n"
+                                               f"<i>{g['note']}</i>")
+    elif cmd == "/pending" and user.role == "admin":
+        await _send_pending(db, chat_id, client)
     elif cmd in ("/entered", "/skipped", "/closed"):
         await client.send_message(chat_id, "Use the buttons under a signal (/signals) to report ENTERED, SKIPPED or CLOSED.")
     elif not text.startswith("/") and user.role == "admin":
@@ -234,7 +292,8 @@ async def handle_update(db: Session, update: dict, client: TelegramClient) -> No
         reply = await handle_chat(db, text)
         await client.send_message(chat_id, html.escape(reply.text)[:3900])
     else:
-        await client.send_message(chat_id, "Commands: /signals /performance /agents /dashboard /settings")
+        await client.send_message(chat_id, "Commands: /signals /performance /goal /agents /dashboard /settings"
+                                  + (" /pending" if user.role == "admin" else ""))
 
 
 def _wants(user: User, key: str) -> bool:

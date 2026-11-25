@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..models import Signal, UserTrade, utcnow
 from . import bus, llm, runtime
-from .models import (HQApproval, HQBacktestRun, HQChecklistItem, HQDecision, HQDraft, HQEvent, HQIncident,
+from .models import (HQApproval, HQProposal, HQBacktestRun, HQChecklistItem, HQDecision, HQDraft, HQEvent, HQIncident,
                      HQKnowledge, HQReport, HQTask, HQXPEvent)
 from .notify import notify_owner
 from .registry import load_defs
@@ -87,6 +87,10 @@ def agent_numbers(db: Session, agent_id: str, since: datetime) -> dict:
         n["incidents_open_now"] = db.scalar(select(func.count()).select_from(HQIncident).where(HQIncident.status != "resolved")) or 0
     if agent_id == "scout":
         n["knowledge_notes"] = db.scalar(select(func.count()).select_from(HQKnowledge).where(HQKnowledge.created_at >= since)) or 0
+    if agent_id == "researcher":
+        props = list(db.scalars(select(HQProposal).where(HQProposal.agent_id == "researcher", HQProposal.created_at >= since)))
+        n["ideas_tested"] = len(props)
+        n["ideas_sent_to_owner"] = sum(1 for p in props if p.approval_id)
     if agent_id == "content":
         n["drafts"] = db.scalar(select(func.count()).select_from(HQDraft).where(HQDraft.created_at >= since)) or 0
     if agent_id == "engineer":

@@ -12,6 +12,7 @@ os.environ["SECRET_KEY"] = "test-secret-key-0123456789"
 os.environ["ENVIRONMENT"] = "test"
 os.environ["ENABLE_SCHEDULER"] = "false"
 os.environ["HQ_DAILY_PICK"] = "false"  # never touch live markets from tests
+os.environ["HQ_RESEARCH"] = "false"  # never touch GitHub from tests
 os.environ["TELEGRAM_BOT_TOKEN"] = "123:TEST"
 os.environ["TELEGRAM_WEBHOOK_SECRET"] = "whsecret"
 os.environ["ANTHROPIC_API_KEY"] = ""

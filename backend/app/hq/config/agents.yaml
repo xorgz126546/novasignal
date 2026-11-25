@@ -130,3 +130,11 @@ agents:
     tools: {skills_write: 1, levels: 1, weekly_report: 1}
     schedule: "weekly FRI 17:00"
     color: "#2dd4bf"
+  - id: researcher
+    name: {en: "Hadi — Opportunity Researcher", ar: "هادي — باحث الفرص"}
+    role: "Searches GitHub all day for techniques and analysis tools that could bring more valid opportunities; re-expresses each as our own rule, gets it tested on real history and calls the owner on Telegram to approve."
+    room: strategy_lab
+    model: routine
+    tools: {github_search: 1, knowledge_write: 1, propose: 1, request_tool: 1}
+    schedule: "every 6h"
+    color: "#facc15"

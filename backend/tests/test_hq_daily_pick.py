@@ -25,9 +25,9 @@ def ctx_of(c1h, c4h, sym="TESTUSDT", btc_ret=None) -> Context:
     return ctx
 
 
-def test_thirteen_strategies_three_horizons_still_15_agents():
+def test_thirteen_strategies_three_horizons_still_16_agents():
     from app.hq.profiles import PROFILES
-    assert len(load_defs()) == 15
+    assert len(load_defs()) == 16
     assert set(BUILTINS) == {"breakout_retest", "trend_pullback", "liquidity_sweep", "squeeze_breakout",
                              "donchian_breakout", "relative_strength", "oversold_bounce", "range_support",
                              "scalp_pullback", "scalp_breakout", "invest_200d_reclaim", "invest_golden_cross", "invest_bull_dip"}
@@ -155,8 +155,12 @@ def test_scheduler_runs_only_daily_pick_when_hq_disabled(monkeypatch):
     from app.hq import scheduler
     monkeypatch.setattr(get_settings(), "hq_enabled", False)
     monkeypatch.setattr(get_settings(), "hq_daily_pick", True)
-    assert {n for n, _ in scheduler.active_jobs()} == {"daily_pick", "tournament", "learn_outcomes"}
+    monkeypatch.setattr(get_settings(), "hq_research", False)
+    assert {n for n, _ in scheduler.active_jobs()} == {"daily_pick", "tournament", "learn_outcomes", "regime_watch"}
+    monkeypatch.setattr(get_settings(), "hq_research", True)
+    assert "research" in {n for n, _ in scheduler.active_jobs()}  # Hadi researches even with HQ off
     monkeypatch.setattr(get_settings(), "hq_daily_pick", False)
+    monkeypatch.setattr(get_settings(), "hq_research", False)
     assert scheduler.active_jobs() == []
     monkeypatch.setattr(get_settings(), "hq_enabled", True)
     assert "trading_cycle" in {n for n, _ in scheduler.active_jobs()}
