@@ -80,6 +80,11 @@ async def _run(db: Session, client: BinanceClient, notify, now: datetime) -> dic
                 _decision(db, ref, c.symbol, "NO_TRADE", "scanner", [f"spread {spread:.3f}% > {risk.max_spread_pct}%"])
                 continue
             universe.append(c.symbol)
+        from .movers import hot_symbols
+
+        for sym in hot_symbols(db):  # Tariq's movers (still pass every rule downstream)
+            if sym not in universe and sym in symbols:
+                universe.append(sym)
         t.result = {"summary": f"{len(universe)} markets in universe from {scan.scanned} tickers", "universe": universe,
                     "excluded": scan.excluded}
 

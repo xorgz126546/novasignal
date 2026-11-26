@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     hq_brief_hour: int = 8
     hq_library_weekday: int = 4  # 0=Mon … 4=Fri
     hq_scan_interval_minutes: int = 30
+    hq_growth: bool = False  # content/marketing drafts (Tariq/Celine) — paused: the team hunts trades instead
     hq_research: bool = True  # Hadi researches GitHub even when HQ_ENABLED=false
     hq_research_interval_minutes: int = 360
     hq_daily_pick: bool = True  # daily best recommendation + weekly tournament run even if HQ_ENABLED is false

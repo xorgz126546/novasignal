@@ -54,7 +54,10 @@ def request(db: Session, kind: str, title: str, summary: str, payload: dict, age
         db.rollback()
         return db.scalar(select(HQApproval).where(HQApproval.ref == ref))
     bus.publish(db, "needs_you", "manager", approval_id=a.id, kind=kind, title=a.title)
-    _push_to_owner(a.id)
+    from ..config import get_settings
+
+    if kind != "content" or get_settings().hq_growth:  # content is paused: never ping the owner about drafts
+        _push_to_owner(a.id)
     return a
 
 

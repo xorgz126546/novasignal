@@ -23,7 +23,7 @@ export const ROOMS: Record<string, Rect> = {
   backtest_lab: { x: 0, y: 16, w: 10, h: 14, label: { en: "Backtest Lab", ar: "مختبر الاختبار" }, floor: "#0f1a18" },
   library: { x: 10, y: 16, w: 10, h: 14, label: { en: "Library", ar: "المكتبة" }, floor: "#16140e" },
   engineering: { x: 20, y: 16, w: 9, h: 14, label: { en: "Engineering", ar: "الهندسة" }, floor: "#0f141c" },
-  content_studio: { x: 29, y: 16, w: 9, h: 14, label: { en: "Content Studio", ar: "استوديو المحتوى" }, floor: "#1a1018" },
+  content_studio: { x: 29, y: 16, w: 9, h: 14, label: { en: "Watch desk", ar: "غرفة المراقبة" }, floor: "#1a1018" },
   manager_office: { x: 38, y: 16, w: 10, h: 14, label: { en: "Manager's office", ar: "مكتب المديرة" }, floor: "#1c1414" },
 };
 const HANDOVER = { x: (38 + 3) * T, y: (16 + 9) * T }; // spot in front of the Manager's desk

@@ -67,8 +67,7 @@ def jobs() -> list[tuple[str, str]]:
         ("agent_reports", f"daily {max(s.hq_brief_hour - 1, 0):02d}:30"),
         ("brief", f"daily {s.hq_brief_hour:02d}:00"),
         ("scout", "weekly MON 07:00"),
-        ("trends", "twice_daily 09:00,18:00"),
-        ("content", "daily 10:00"),
+        *([("trends", "twice_daily 09:00,18:00"), ("content", "daily 10:00")] if s.hq_growth else []),
         ("backtest_baselines", "weekly FRI 06:00"),
         ("library", f"weekly {list(DOW)[s.hq_library_weekday]} 17:00"),
         ("pr_watch", "every 30m"),
@@ -77,6 +76,8 @@ def jobs() -> list[tuple[str, str]]:
         ("learn_outcomes", "every 60m"),  # study closed signals (winners and losers)
         ("research", f"every {s.hq_research_interval_minutes}m"),  # Hadi: GitHub opportunity research
         ("regime_watch", "every 30m"),  # BTC risk-on/off flips → owner alert + immediate re-check
+        ("movers", "every 30m"),  # Tariq: coins moving up with real volume → hot list for the universe
+        ("trigger_watch", "every 15m"),  # Celine: trigger level crossed → immediate re-check
     ]
 
 
@@ -84,7 +85,8 @@ def active_jobs() -> list[tuple[str, str]]:
     s = get_settings()
     if s.hq_enabled:
         return jobs()
-    always = {"daily_pick", "tournament", "learn_outcomes", "regime_watch"} if s.hq_daily_pick else set()
+    always = ({"daily_pick", "tournament", "learn_outcomes", "regime_watch", "movers", "trigger_watch"}
+              if s.hq_daily_pick else set())
     if s.hq_research:
         always |= {"research"}
     return [j for j in jobs() if j[0] in always]
@@ -145,6 +147,16 @@ async def run_job(name: str, db: Session) -> None:
         async def recheck():
             await run_daily_pick(db, client, notify, notify_owner)
         await regime_watch(db, client, notify_owner, recheck)
+    elif name == "movers":
+        from .loops.movers import hunt_movers
+        await hunt_movers(db, client)
+    elif name == "trigger_watch":
+        from .loops.daily_pick import run_daily_pick
+        from .loops.watcher import watch_triggers
+
+        async def recheck_now():
+            await run_daily_pick(db, client, notify, notify_owner)
+        await watch_triggers(db, client, recheck_now)
     elif name == "research":
         from .loops.research import research_run
         await research_run(db, client=client, notify_owner=notify_owner)
@@ -182,9 +194,29 @@ async def _loop() -> None:
         await asyncio.sleep(60)
 
 
+def retire_content_approvals() -> int:
+    """Content is paused by the owner: close any pending content drafts so they stop asking for attention."""
+    if get_settings().hq_growth:
+        return 0
+    from .models import HQApproval
+
+    n = 0
+    with SessionLocal() as db:
+        for a in db.query(HQApproval).filter_by(status="pending", kind="content").all():
+            a.status, a.decided_at, a.decided_by = "rejected", utcnow(), "system:content_paused"
+            a.payload = {**(a.payload or {}), "reject_reason": "content paused by the owner — team moved to trade hunting"}
+            n += 1
+        db.commit()
+    return n
+
+
 def start() -> None:
     global _task
     s = get_settings()
+    try:
+        retire_content_approvals()
+    except Exception:
+        log.exception("could not retire content approvals")
     if _task is None and (s.hq_enabled or s.hq_daily_pick or s.hq_research):
         _task = asyncio.get_running_loop().create_task(_loop())
         log.info("HQ scheduler started (%s)", get_settings().hq_timezone)

@@ -93,6 +93,11 @@ def agent_numbers(db: Session, agent_id: str, since: datetime) -> dict:
         n["ideas_sent_to_owner"] = sum(1 for p in props if p.approval_id)
     if agent_id == "content":
         n["drafts"] = db.scalar(select(func.count()).select_from(HQDraft).where(HQDraft.created_at >= since)) or 0
+        n["triggers_crossed"] = db.scalar(select(func.count()).select_from(HQEvent).where(
+            HQEvent.type == "trigger_hit", HQEvent.at >= since)) or 0
+    if agent_id == "trend_hunter":
+        n["hot_list_updates"] = db.scalar(select(func.count()).select_from(HQEvent).where(
+            HQEvent.type == "hot_list", HQEvent.at >= since)) or 0
     if agent_id == "engineer":
         n["fix_prs_open"] = db.scalar(select(func.count()).select_from(HQIncident).where(HQIncident.status == "fix_proposed")) or 0
     return n

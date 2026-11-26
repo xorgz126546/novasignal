@@ -123,7 +123,11 @@ def _delegate(db: Session, intent: str, arg: str) -> str | None:
         _spawn(lambda d: research_run(d, notify_owner=notify_owner), "research")
         return "research"
     if intent == "growth":
+        from ...config import get_settings
         from ..loops.growth import run_growth
+
+        if not get_settings().hq_growth:
+            return "growth_paused"
 
         _spawn(run_growth, "growth")
         return "growth"
@@ -136,6 +140,10 @@ def _delegate(db: Session, intent: str, arg: str) -> str | None:
 
 
 CONFIRM = {
+    "growth_paused": ("Content is paused (your decision). Tariq hunts coins moving up with real volume and Celine watches trigger "
+                      "levels to re-check the moment a setup can form. Set HQ_GROWTH=true to bring content back.",
+                      "المحتوى متوقف (قرارك). طارق يصطاد العملات الصاعدة بحجم حقيقي، وسيلين تراقب مستويات الدخول لتعيد الفحص لحظة "
+                      "ظهور فرصة. لإرجاع المحتوى: HQ_GROWTH=true."),
     "lessons": ("Lina (Librarian) is studying every closed signal: she rebuilds the market fingerprint at signal time, Badr tests a "
                 "'pattern twin' on real history, and anything that passes comes to you for approval. One win alone proves nothing.",
                 "لينا (أمينة المكتبة) تدرس كل توصية أُغلقت: تعيد بناء بصمة السوق لحظة التوصية، وبدر يختبر «نمطًا مشابهًا» على البيانات "
@@ -174,7 +182,7 @@ def _template_reply(intent: str, facts: dict, ar: bool) -> str:
                  f"Needs you: {facts['pending_approvals']} • open incidents: {facts['open_incidents']} • HQ signals: {facts['hq_signals_total']}."]
         if not facts["llm_budget"]["available"]:
             lines.append("LLM is off or today's budget is used up, so I answer with fixed templates.")
-        lines.append("Commands: scan • brief • reports • learn about <topic> • trends • library • status")
+        lines.append("Commands: scan • best pick • research • learn from results • brief • reports • status")
     return "\n".join(lines)
 
 
@@ -187,7 +195,8 @@ async def handle_chat(db: Session, text: str) -> HQChatMessage:
     intent, arg = detect_intent(text)
     with runtime.task(db, "manager", "chat", f"Owner: {text[:120]}", handover=False) as t:
         try:
-            _delegate(db, intent, arg)
+            if _delegate(db, intent, arg) == "growth_paused":
+                intent = "growth_paused"
         except ImportError:  # loop not installed in this build
             intent = "chat"
         facts = status_facts(db)

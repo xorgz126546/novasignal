@@ -107,20 +107,20 @@ agents:
     schedule: "weekly MON 07:00"
     color: "#c084fc"
   - id: trend_hunter
-    name: {en: "Tariq — Trend Hunter", ar: "طارق — صائد الترندات"}
-    role: "Crypto narratives / trending coins and content-marketing trends."
-    room: content_studio
+    name: {en: "Tariq — Market Movers Hunter", ar: "طارق — صائد العملات الصاعدة"}
+    role: "Every 30 min finds liquid USDT coins moving up with real volume (24h +2…+15%, 1H volume above normal, above 1H EMA21) and adds them to the trading universe. A place to look, never a recommendation. (Content work is paused by the owner.)"
+    room: scanner_floor
     model: routine
-    tools: {binance_tickers: 1, coingecko_trending: 1, github_trending: 2}
-    schedule: "twice_daily 09:00,18:00"
+    tools: {binance_tickers: 1, hot_list: 1, github_trending: 2}
+    schedule: "every 30m"
     color: "#fb923c"
   - id: content
-    name: {en: "Celine — Content Editor", ar: "سيلين — محررة المحتوى"}
-    role: "Turns real signals, results and trends into AR/EN post and reel-script drafts and signal cards. Drafts only."
-    room: content_studio
+    name: {en: "Celine — Setup Watcher", ar: "سيلين — مراقبة نقاط الدخول"}
+    role: "Every 15 min compares live prices with the exact trigger levels of the latest daily pick and asks for an immediate re-check when one is crossed, so valid setups are not missed between scheduled checks. (Content work is paused by the owner.)"
+    room: content_studio  # shown as "Watch desk" in the office (content is paused)
     model: routine
-    tools: {draft: 1, signal_card: 1}
-    schedule: "daily 10:00"
+    tools: {binance_price: 1, trigger_watch: 1}
+    schedule: "every 15m"
     color: "#f472b6"
   - id: librarian
     name: {en: "Lina — Librarian/Coach", ar: "لينا — أمينة المكتبة"}

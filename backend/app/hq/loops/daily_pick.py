@@ -102,15 +102,15 @@ def triggers(contexts: dict) -> list[dict]:
         px = cs[-1].close
         if f.get("rsi_min6_1h", 100) < 30:
             lvl = cs[-1].high
-            out.append({"symbol": sym, "strategy": "oversold_bounce", "distance_pct": round((lvl - px) / px * 100, 2),
+            out.append({"symbol": sym, "strategy": "oversold_bounce", "distance_pct": round((lvl - px) / px * 100, 2), "level": lvl,
                         "trigger": f"1H close above {lvl:.6g} with RSI(1h) ≥ 35 (was oversold at {f['rsi_min6_1h']:.1f})"})
         if "donchian_high20_4h" in f and f.get("adx_4h", 0) >= 20 and f.get("ema21_4h", 0) > f.get("ema50_4h", 0):
             lvl = f["donchian_high20_4h"]
-            out.append({"symbol": sym, "strategy": "donchian_breakout", "distance_pct": round((lvl - px) / px * 100, 2),
+            out.append({"symbol": sym, "strategy": "donchian_breakout", "distance_pct": round((lvl - px) / px * 100, 2), "level": lvl,
                         "trigger": f"4H close above {lvl:.6g} (20-bar 4H high)"})
         if f.get("squeeze_recent_1h") and "donchian_high20_1h" in f:
             lvl = f["donchian_high20_1h"]
-            out.append({"symbol": sym, "strategy": "squeeze_breakout", "distance_pct": round((lvl - px) / px * 100, 2),
+            out.append({"symbol": sym, "strategy": "squeeze_breakout", "distance_pct": round((lvl - px) / px * 100, 2), "level": lvl,
                         "trigger": f"1H close above {lvl:.6g} on 1.3x+ volume after a volatility squeeze"})
     return sorted([t for t in out if 0 <= t["distance_pct"] <= 10], key=lambda t: t["distance_pct"])[:5]
 
@@ -143,6 +143,13 @@ async def run_daily_pick(db: Session, client: BinanceClient, notify=None, notify
                                         excluded_bases=cfg.excluded_bases, shortlist_size=max(risk.shortlist_size, 25)))
         universe = [c.symbol for c in scan.shortlist]
         qv = {c.symbol: c.quote_volume for c in scan.shortlist}
+        from .movers import hot_symbols
+
+        tick = {x.get("symbol"): x for x in tickers}
+        for sym in hot_symbols(db):  # Tariq's movers: strong coins outside the top-volume shortlist
+            if sym not in universe and sym in symbols:
+                universe.append(sym)
+                qv[sym] = float(tick.get(sym, {}).get("quoteVolume") or 0)
         t.result = {"summary": f"{len(universe)} markets for the daily pick"}
 
     contexts = {}

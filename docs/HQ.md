@@ -126,6 +126,15 @@ Tools: Supertrend · Stochastic RSI · rolling VWAP · OBV slope · MFI · CCI �
 - Backtests may use any tool, so the team can bring evidence before asking.
 - A live rule that needs a tool only trades after `tool:<name>` is approved. Approving the Telegram card activates the tool and the rule together, and rollback is one click.
 
+### Content paused → the whole team hunts trades
+
+By the owner's decision, content work is off (`HQ_GROWTH=false` by default).
+- No reels or posts are drafted, and pending content drafts are closed automatically.
+- The two content agents now work on trading:
+  - **Tariq — Market Movers Hunter** (every 30 min, `hq/loops/movers.py`) finds liquid USDT coins rising with real volume: 24h +2…+15%, 1H volume ≥ 1.2× normal, price above the 1H EMA21, RSI ≤ 75. They go on a hot list that the daily pick and the trading cycle add to their universe.
+  - **Celine — Setup Watcher** (every 15 min, `hq/loops/watcher.py`) compares live prices with the exact trigger levels of the latest daily pick. When one is crossed, the team re-checks immediately instead of waiting for the next scheduled time.
+- Neither job is a signal. Every rule still applies.
+
 ### Owner contact (Telegram)
 
 - Every "Needs you" item is pushed to the linked **admin** chat(s) and to `TELEGRAM_CHAT_ID`, with Approve/Reject buttons.

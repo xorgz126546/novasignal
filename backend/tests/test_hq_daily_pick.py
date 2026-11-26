@@ -156,14 +156,16 @@ def test_scheduler_runs_only_daily_pick_when_hq_disabled(monkeypatch):
     monkeypatch.setattr(get_settings(), "hq_enabled", False)
     monkeypatch.setattr(get_settings(), "hq_daily_pick", True)
     monkeypatch.setattr(get_settings(), "hq_research", False)
-    assert {n for n, _ in scheduler.active_jobs()} == {"daily_pick", "tournament", "learn_outcomes", "regime_watch"}
+    assert {n for n, _ in scheduler.active_jobs()} == {"daily_pick", "tournament", "learn_outcomes", "regime_watch",
+                                                          "movers", "trigger_watch"}
     monkeypatch.setattr(get_settings(), "hq_research", True)
     assert "research" in {n for n, _ in scheduler.active_jobs()}  # Hadi researches even with HQ off
     monkeypatch.setattr(get_settings(), "hq_daily_pick", False)
     monkeypatch.setattr(get_settings(), "hq_research", False)
     assert scheduler.active_jobs() == []
     monkeypatch.setattr(get_settings(), "hq_enabled", True)
-    assert "trading_cycle" in {n for n, _ in scheduler.active_jobs()}
+    names = {n for n, _ in scheduler.active_jobs()}
+    assert "trading_cycle" in names and "content" not in names and "trends" not in names  # content paused by the owner
 
 
 def test_triggers_are_conditions_with_levels():
