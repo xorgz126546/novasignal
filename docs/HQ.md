@@ -151,6 +151,17 @@ What is built:
 - **It starts OFF.** It is backtested once and sent to the owner on Telegram, and only trades after ✅.
 - **Tariq alerts you** the moment a coin enters an ignition. That alert is a watchlist entry, not a recommendation. The team then re-checks immediately.
 
+### Study hall — free time = learning (`hq/loops/study.py`)
+
+Owner's rule: **whoever finishes their work goes to learn a new skill on GitHub.**
+- **Who studies.** Every 20 minutes, the agent that is idle, has no job due in the next 15 minutes and studied least recently (at most once every 4 hours) takes a study session on topics of *its own job*. Examples: risk → position sizing, structure → support/resistance, sweep → mean reversion.
+- **Relevance filter.** Only market and trading projects are studied, except for the engineer and the auditor, whose skills are software skills.
+- **Safety.** READMEs are untrusted data and are never executed.
+- **Trading agents** may turn one technique per session into our own rule, which the Backtester tests. Only passed, or clearly labelled *promising*, ideas reach you on Telegram (✅/❌).
+- **With an Anthropic key**, an agent may also propose a short lesson for its own prompt. That also needs your approval.
+- **Every evening at 20:30** you get one message: "📚 what the team learned today".
+- **Weekly.** The Library session folds each agent's study log into its skills file, which needs your approval. Studying alone gives no XP.
+
 ### Owner contact (Telegram)
 
 - Every "Needs you" item is pushed to the linked **admin** chat(s) and to `TELEGRAM_CHAT_ID`, with Approve/Reject buttons.

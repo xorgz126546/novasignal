@@ -130,6 +130,8 @@ def jobs() -> list[tuple[str, str]]:
         ("regime_watch", "every 30m"),  # BTC risk-on/off flips → owner alert + immediate re-check
         ("movers", "every 30m"),  # Tariq: coins moving up with real volume → hot list for the universe
         ("trigger_watch", "every 15m"),  # Celine: trigger level crossed → immediate re-check
+        ("study_hall", "every 20m"),  # whoever finished their work studies a new skill on GitHub (owner's rule)
+        ("study_digest", "daily 20:30"),  # one evening message: what the team learned today
     ]
 
 
@@ -140,7 +142,7 @@ def active_jobs() -> list[tuple[str, str]]:
     always = ({"daily_pick", "tournament", "learn_outcomes", "regime_watch", "movers", "trigger_watch"}
               if s.hq_daily_pick else set())
     if s.hq_research:
-        always |= {"research"}
+        always |= {"research", "study_hall", "study_digest"}
     return [j for j in jobs() if j[0] in always]
 
 
@@ -220,6 +222,19 @@ async def run_job(name: str, db: Session) -> None:
         async def recheck_now():
             await run_daily_pick(db, client, notify, notify_owner)
         await watch_triggers(db, client, recheck_now)
+    elif name == "study_hall":
+        from .loops.study import pick_student, study_session
+
+        student = pick_student(db)
+        if student:
+            await study_session(db, student, client=client)
+    elif name == "study_digest":
+        from .loops.study import digest_md
+        from .reports import md_to_telegram
+
+        body = digest_md(db, utcnow() - timedelta(hours=24))
+        if body:
+            await notify_owner(md_to_telegram(body))
     elif name == "research":
         from .loops.research import research_run
         await research_run(db, client=client, notify_owner=notify_owner)

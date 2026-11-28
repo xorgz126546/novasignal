@@ -54,6 +54,11 @@ def agent_week(db: Session, agent_id: str, since) -> dict:
         if gates:
             f["gates"] = gates
             f["latest_gate"] = gates.get(d.strategy) or next(iter(gates.values()))
+    from .study import study_log
+
+    studied = study_log(db, agent_id, since)
+    if studied:
+        f["studied_on_github"] = studied[-5:]
     if agent_id in ("risk", "publisher", "manager"):
         aud = db.execute(select(HQDecision.audit_result, func.count()).where(HQDecision.stage == agent_id, HQDecision.created_at >= since,
                                                                             HQDecision.audit_result.is_not(None)).group_by(HQDecision.audit_result)).all()
@@ -79,6 +84,9 @@ def deterministic_lessons(agent_id: str, f: dict) -> list[str]:
     so = f.get("signal_outcomes") or {}
     if so.get("TARGET_HIT") or so.get("STOP_LOSS_HIT"):
         L.append(f"Outcomes this week: TP {so.get('TARGET_HIT', 0)}, SL {so.get('STOP_LOSS_HIT', 0)}.")
+    if f.get("studied_on_github"):
+        L.append(f"Studied {len(f['studied_on_github'])} GitHub repo(s) in my free time: "
+                 + "; ".join(x[11:90] for x in f["studied_on_github"][:3]))
     return L or ["Quiet week: no outcomes or failures to learn from yet."]
 
 
