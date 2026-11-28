@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ...market.backtest import GateThresholds, gate, simulate
-from ...market.binance import BinanceClient, Candle, closed_candles
+from ...market.binance import BinanceClient, Candle, MarketDataError, closed_candles
 from ...models import utcnow
 from ...trading_config import load_config
 from .. import bus, runtime
@@ -20,6 +20,10 @@ from ..versions import active_data
 DEFAULT_UNIVERSE = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"]
 # Long-term setups are rare per coin, so they are tested on more liquid majors (daily data is cheap).
 PROFILE_UNIVERSE = {"invest": DEFAULT_UNIVERSE + ["ADAUSDT", "DOGEUSDT", "LINKUSDT", "AVAXUSDT", "DOTUSDT", "LTCUSDT", "TRXUSDT"]}
+# Momentum ignition needs breadth: liquid majors + mid caps (symbols that don't exist are skipped).
+PROFILE_UNIVERSE["momentum"] = PROFILE_UNIVERSE["invest"] + [
+    "SUIUSDT", "NEARUSDT", "APTUSDT", "ARBUSDT", "OPUSDT", "INJUSDT", "TIAUSDT", "SEIUSDT", "FETUSDT", "RENDERUSDT",
+    "PEPEUSDT", "WIFUSDT", "BONKUSDT", "SHIBUSDT", "AAVEUSDT", "UNIUSDT", "FILUSDT", "ATOMUSDT", "ENAUSDT", "HBARUSDT"]
 CACHE_TTL = timedelta(hours=6)
 
 
@@ -79,7 +83,10 @@ async def run_gate(db: Session, client: BinanceClient, strategy: Strategy, param
         data = {}
         tfs = [tf for tf in prof.tfs if tf in HISTORY_BARS]
         for sym in universe or PROFILE_UNIVERSE.get(prof.id, DEFAULT_UNIVERSE):
-            data[sym] = {tf: await history(db, client, sym, tf, HISTORY_BARS[tf]) for tf in tfs}
+            try:
+                data[sym] = {tf: await history(db, client, sym, tf, HISTORY_BARS[tf]) for tf in tfs}
+            except MarketDataError:
+                continue  # delisted / unknown symbol: skip, never invent data
         btc = (data.get("BTCUSDT", {}).get("1h")) or await history(db, client, "BTCUSDT", "1h", HISTORY_BARS["1h"])
         res = await asyncio.to_thread(simulate, strategy, params, data, risk, horizon_bars(prof.id, risk), 1, btc)
         n_var = variants_tried(db, subject.split("@")[0])

@@ -30,8 +30,8 @@ def active_strategies(db: Session) -> list[ActiveStrategy]:
         if sid not in owners:
             continue  # strategy agent removed from config → plug-in off
         override = active_data(db, f"strategy:{sid}") or {}
-        if override.get("enabled", True) is False:
-            continue
+        if override.get("enabled", not getattr(strat, "requires_approval", False)) is False:
+            continue  # disabled, or a new strategy the owner has not approved yet
         out.append(ActiveStrategy(strat, {**strat.default_params, **override.get("params", {})}, owners[sid]))
     from ..tools_registry import unlocked
 

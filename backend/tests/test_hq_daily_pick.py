@@ -30,7 +30,8 @@ def test_thirteen_strategies_three_horizons_still_16_agents():
     assert len(load_defs()) == 16
     assert set(BUILTINS) == {"breakout_retest", "trend_pullback", "liquidity_sweep", "squeeze_breakout",
                              "donchian_breakout", "relative_strength", "oversold_bounce", "range_support",
-                             "scalp_pullback", "scalp_breakout", "invest_200d_reclaim", "invest_golden_cross", "invest_bull_dip"}
+                             "scalp_pullback", "scalp_breakout", "invest_200d_reclaim", "invest_golden_cross", "invest_bull_dip",
+                             "momentum_ignition"}
     assert {s.profile for s in BUILTINS.values()} == set(PROFILES)
 
 
@@ -123,7 +124,7 @@ async def test_daily_pick_publishes_best_and_only_once_per_day(db, monkeypatch):
     assert sent == ["new_signal", "text"]  # swing pick + one daily summary (scalp/long-term: NO TRADE)
     r2 = await dp.run_daily_pick(db, FakeMarket("up"), notify)  # re-check later the same day
     assert db.query(Signal).count() == 1 and sent == ["new_signal", "text"]  # no duplicate pick, no second message
-    assert r2["missing"] == ["scalp", "invest"]
+    assert r2["missing"] == ["momentum", "scalp", "invest"]
 
 
 async def test_daily_pick_excludes_clearly_losing_strategies_and_reports_no_trade(db, monkeypatch):
@@ -147,7 +148,7 @@ async def test_daily_pick_excludes_clearly_losing_strategies_and_reports_no_trad
     await dp.run_daily_pick(db, FakeMarket("up"), notify)  # later re-check the same day
     assert len(texts) == 1  # only one NO TRADE message per day
     assert db.query(HQReport).filter_by(kind="daily_pick").count() == 2  # one report per check, one message per day
-    assert db.query(HQDecision).filter_by(symbol="*", decision="NO_TRADE").count() == 6  # 3 types x 2 checks
+    assert db.query(HQDecision).filter_by(symbol="*", decision="NO_TRADE").count() == 8  # 4 types x 2 checks
 
 
 def test_scheduler_runs_only_daily_pick_when_hq_disabled(monkeypatch):

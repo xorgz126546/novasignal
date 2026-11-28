@@ -66,7 +66,8 @@ def _btc_ret_7d(btc: list[Candle] | None, close_times: list[int] | None, t: int)
 
 
 def _ctx_at(symbol: str, series: dict[str, list[Candle]], close_times: dict[str, list[int]], base_tf: str, i: int,
-            btc: list[Candle] | None, btc_ct: list[int] | None, res_tfs: tuple[str, ...], tools=frozenset()) -> Context:
+            btc: list[Candle] | None, btc_ct: list[int] | None, res_tfs: tuple[str, ...], tools=frozenset(),
+            light: bool = False) -> Context:
     """Context at bar i of the base timeframe, using ONLY candles closed by then (no look-ahead)."""
     base = series[base_tf]
     t_close = base[i].close_time
@@ -76,7 +77,7 @@ def _ctx_at(symbol: str, series: dict[str, list[Candle]], close_times: dict[str,
             continue
         j = bisect.bisect_right(close_times[tf], t_close)
         candles[tf] = cs[max(0, j - WINDOW):j]
-    feats, st = build_features(candles, tools)
+    feats, st = ({}, {}) if light else build_features(candles, tools)
     ctx = Context(symbol, candles, feats, st, base[i].close, 0.0, 0.0, 0.0, backtest=True)
     ctx.extras["btc_ret_7d"] = _btc_ret_7d(btc, btc_ct, t_close)
     ctx.extras["res_tfs"] = res_tfs
@@ -95,6 +96,7 @@ def simulate(strategy: Strategy, params: dict, data: dict, risk: RiskConfig, hor
     res = BacktestResult(symbols=list(data))
     btc_ct = [c.close_time for c in btc_1h] if btc_1h else None
     tools = frozenset(getattr(strategy, "tools", ()) or ())  # only compute the extra tools this strategy uses
+    light = getattr(strategy, "needs_features", True) is False
     for sym, raw in data.items():
         series = raw if isinstance(raw, dict) else {"1h": raw[0], "4h": raw[1]}
         if base_tf not in series:
@@ -104,7 +106,7 @@ def simulate(strategy: Strategy, params: dict, data: dict, risk: RiskConfig, hor
         res.bars += max(0, len(bars) - WARMUP)
         i = WARMUP
         while i < len(bars) - 2:
-            r = strategy.evaluate(_ctx_at(sym, series, cts, base_tf, i, btc_1h, btc_ct, prof.res_tfs, tools), params, risk)
+            r = strategy.evaluate(_ctx_at(sym, series, cts, base_tf, i, btc_1h, btc_ct, prof.res_tfs, tools, light), params, risk)
             if not isinstance(r, Setup):
                 i += step
                 continue

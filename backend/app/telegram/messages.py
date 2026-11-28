@@ -28,7 +28,8 @@ def _type_label(sig: Signal) -> str:
         from ..hq.strategies.builtin import BUILTINS
         st = BUILTINS.get(sig.strategy_id)
         prof = getattr(st, "profile", None) if st else None
-    return {"scalp": "⚡ Scalp (15m, hours)", "swing": "📈 Swing (1-2 days)", "invest": "🏦 Long-term (weeks)"}.get(prof or "", "")
+    return {"scalp": "⚡ Scalp (15m, hours)", "swing": "📈 Swing (1-2 days)", "invest": "🏦 Long-term (weeks)",
+            "momentum": "🚀 Momentum ignition (1-3 days)"}.get(prof or "", "")
 
 
 def new_signal(sig: Signal, dashboard_url: str) -> str:

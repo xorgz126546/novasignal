@@ -148,8 +148,15 @@ async def run_job(name: str, db: Session) -> None:
             await run_daily_pick(db, client, notify, notify_owner)
         await regime_watch(db, client, notify_owner, recheck)
     elif name == "movers":
+        from .loops.daily_pick import run_daily_pick
+        from .loops.enable import ensure_enable_requests
         from .loops.movers import hunt_movers
-        await hunt_movers(db, client)
+
+        await ensure_enable_requests(db, client)  # new strategies: gate once, then ask the owner on Telegram
+
+        async def recheck_ignition():
+            await run_daily_pick(db, client, notify, notify_owner)
+        await hunt_movers(db, client, notify_owner=notify_owner, on_ignition=recheck_ignition)
     elif name == "trigger_watch":
         from .loops.daily_pick import run_daily_pick
         from .loops.watcher import watch_triggers

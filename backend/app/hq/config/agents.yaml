@@ -108,11 +108,12 @@ agents:
     color: "#c084fc"
   - id: trend_hunter
     name: {en: "Tariq — Market Movers Hunter", ar: "طارق — صائد العملات الصاعدة"}
-    role: "Every 30 min finds liquid USDT coins moving up with real volume (24h +2…+15%, 1H volume above normal, above 1H EMA21) and adds them to the trading universe. A place to look, never a recommendation. (Content work is paused by the owner.)"
+    role: "Every 30 min finds liquid USDT coins moving up with real volume and coins in a momentum ignition (+10% in 3 days on 1.5× volume), alerts the owner and adds them to the trading universe; owns the Momentum Ignition strategy. A place to look, never a recommendation. (Content work is paused by the owner.)"
     room: scanner_floor
     model: routine
-    tools: {binance_tickers: 1, hot_list: 1, github_trending: 2}
+    tools: {binance_tickers: 1, hot_list: 1, github_trending: 2, strategy_eval: 1}
     schedule: "every 30m"
+    strategies: [momentum_ignition]
     color: "#fb923c"
   - id: content
     name: {en: "Celine — Setup Watcher", ar: "سيلين — مراقبة نقاط الدخول"}

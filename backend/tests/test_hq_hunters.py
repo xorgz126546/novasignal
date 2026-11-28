@@ -53,3 +53,64 @@ async def test_content_is_paused_and_never_pings_the_owner(db, monkeypatch):
     db.expire_all()
     assert db.get(HQApproval, a.id).status == "rejected"
     assert {n for n, _ in scheduler.jobs()} & {"trends", "content"} == set()
+
+
+# ---------------- momentum ignition (catch a move in its first days) ----------------
+def _ign_ctx(r3_pct=14.0, vol_mult=2.0):
+    from app.hq.features import Context
+    now_ms = int(utcnow().timestamp() * 1000)
+    flat = [100.0] * 280
+    rise = [100.0 * (1 + r3_pct / 100) ** (k / 18) for k in range(1, 19)]
+    c4 = make_candles(flat + rise, 14_400_000, start_ms=now_ms - 298 * 14_400_000)
+    d = make_candles([100.0] * 40, 86_400_000, start_ms=now_ms - 41 * 86_400_000, vols=[100.0] * 37 + [100.0 * vol_mult] * 3)
+    ctx = Context("IGNUSDT", {"4h": c4, "1d": d}, {}, {}, c4[-1].close, 0.0001, 0.001, 5.0, True)
+    ctx.extras["res_tfs"] = ()
+    return ctx
+
+
+def test_momentum_ignition_rules_and_single_target():
+    from app.hq.profiles import profile_risk
+    from app.hq.strategies.base import Reject, Setup
+    from app.hq.strategies.builtin import BUILTINS
+    from app.trading_config import RiskConfig
+    s = BUILTINS["momentum_ignition"]
+    risk = profile_risk(RiskConfig(), "momentum")
+    r = s.evaluate(_ign_ctx(), s.default_params, risk)
+    assert isinstance(r, Setup) and abs(r.stop_pct - 6.0) < 0.1 and 12.0 <= r.move_pct <= 15.0 and r.stop < r.entry < r.take_profit
+    assert isinstance(s.evaluate(_ign_ctx(r3_pct=4), s.default_params, risk), Reject)  # no ignition
+    assert "without volume" in s.evaluate(_ign_ctx(vol_mult=1.0), s.default_params, risk).reason
+    assert "parabolic" in s.evaluate(_ign_ctx(r3_pct=60), s.default_params, risk).reason
+
+
+async def test_new_strategy_stays_off_until_owner_approves(db, monkeypatch):
+    from app.hq.loops import enable
+    from app.hq.strategies.registry import active_strategies
+    from test_hq_upgrade_repair import fake_gate
+    monkeypatch.setattr(enable, "run_gate", fake_gate(False))
+    monkeypatch.setattr(approvals, "_push_to_owner", lambda aid: None)
+    assert "momentum_ignition" not in {a.strategy.id for a in active_strategies(db)}
+    ids = await enable.ensure_enable_requests(db, object())
+    assert len(ids) == 1 and await enable.ensure_enable_requests(db, object()) == []  # asked once
+    a = db.get(HQApproval, ids[0])
+    assert "momentum" in a.title.lower() and "ليست نصيحة مالية" in a.summary
+    approvals.approve(db, a.id, "owner")
+    assert "momentum_ignition" in {x.strategy.id for x in active_strategies(db)}
+
+
+async def test_ignition_alert_once_per_move_and_triggers_recheck(db):
+    class IgnMarket(MoverMarket):
+        async def klines(self, sym, tf, limit=300):
+            c = _ign_ctx()
+            return c.candles["4h"] if tf == "4h" else c.candles["1d"] if tf == "1d" else self.c[tf]
+    msgs, rechecks = [], []
+
+    async def owner(m, markup=None):
+        msgs.append(m)
+
+    async def recheck():
+        rechecks.append(1)
+    hot = await movers.hunt_movers(db, IgnMarket(), notify_owner=owner, on_ignition=recheck)
+    assert any(h.get("ignition") for h in hot) and len(msgs) == 1 and rechecks == [1]
+    assert "وليست توصية" in msgs[0]
+    await movers.hunt_movers(db, IgnMarket(), notify_owner=owner, on_ignition=recheck)
+    assert len(msgs) == 1  # same move: no second alert

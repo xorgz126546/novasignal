@@ -69,6 +69,7 @@ Every candidate becomes a persisted `SIGNAL` or `NO_TRADE` with its stage and re
 | Agent | Strategies |
 |---|---|
 | Bilal | Breakout+Retest, Volatility Squeeze Breakout, 4H Donchian Breakout |
+| Tariq | Momentum Ignition (new type 🚀, off until the owner approves) |
 | Tara | Trend Pullback, Relative-Strength Leader (coins beating BTC by 5%+ over 7 days) |
 | Layla | Liquidity Sweep, Oversold Bounce, Range-Support Bounce |
 
@@ -134,6 +135,21 @@ By the owner's decision, content work is off (`HQ_GROWTH=false` by default).
   - **Tariq — Market Movers Hunter** (every 30 min, `hq/loops/movers.py`) finds liquid USDT coins rising with real volume: 24h +2…+15%, 1H volume ≥ 1.2× normal, price above the 1H EMA21, RSI ≤ 75. They go on a hot list that the daily pick and the trading cycle add to their universe.
   - **Celine — Setup Watcher** (every 15 min, `hq/loops/watcher.py`) compares live prices with the exact trigger levels of the latest daily pick. When one is crossed, the team re-checks immediately instead of waiting for the next scheduled time.
 - Neither job is a signal. Every rule still applies.
+
+### "Before it trends": what the data says (`hq/strategies/momentum.py`)
+
+We tested on real Binance data: 79 liquid USDT coins, about 5.5 months of 4H bars, entry on the next bar, fees included.
+- **No edge — "quiet accumulation":** volume building while the price is flat, OBV, squeeze, coiling under highs. Flagged coins hit +10% *less* often than the average coin, so this was **not shipped**.
+- **Consistent edge — momentum ignition:** a coin up +10…+40% in 3 days, with daily volume ≥ 1.5× its 20-day average.
+  - Within the next 3 days it rose another +10% about 45% of the time, against 16–26% for the average coin.
+  - A 12% target with a 6% stop was net positive in both halves of the period.
+  - The system gate across 32 coins gave 197 trades, a 46% win rate and **+1.17%/trade after fees** (t = 2.05).
+  - But the most recent out-of-sample stretch was negative, so it is *promising, not proven*.
+
+What is built:
+- **Momentum ignition** is a new trade type (🚀, 4H, target 12%, stop 6%, 3-day horizon, ≥ 10M USDT/day) owned by Tariq.
+- **It starts OFF.** It is backtested once and sent to the owner on Telegram, and only trades after ✅.
+- **Tariq alerts you** the moment a coin enters an ignition. That alert is a watchlist entry, not a recommendation. The team then re-checks immediately.
 
 ### Owner contact (Telegram)
 

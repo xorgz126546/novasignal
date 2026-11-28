@@ -116,7 +116,7 @@ def triggers(contexts: dict) -> list[dict]:
 
 
 # ---------------- daily best pick ----------------
-PROFILE_ORDER = ("swing", "scalp", "invest")
+PROFILE_ORDER = ("swing", "momentum", "scalp", "invest")
 
 
 async def run_daily_pick(db: Session, client: BinanceClient, notify=None, notify_owner=None, now=None) -> dict:
