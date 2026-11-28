@@ -45,6 +45,58 @@ def is_due(schedule: str, last_run: datetime | None, now: datetime) -> bool:
     return False
 
 
+# Which scheduled jobs each agent works in (for "who works when" in the status reply).
+AGENT_JOBS = {
+    "manager": ["daily_pick", "brief"], "scanner": ["trading_cycle", "daily_pick"], "structure": ["trading_cycle", "daily_pick"],
+    "strat_breakout": ["trading_cycle", "daily_pick"], "strat_pullback": ["trading_cycle", "daily_pick"],
+    "strat_sweep": ["trading_cycle", "daily_pick"], "risk": ["trading_cycle", "regime_watch", "daily_pick"],
+    "backtester": ["tournament", "backtest_baselines", "research"], "publisher": ["trading_cycle", "daily_pick"],
+    "auditor": ["auditor"], "engineer": ["pr_watch"], "scout": ["scout"], "trend_hunter": ["movers"],
+    "content": ["trigger_watch"], "librarian": ["learn_outcomes", "library"], "researcher": ["research"],
+}
+
+
+def next_run(schedule: str, last: datetime | None, now: datetime) -> datetime:
+    """When a job is next due (same rules as is_due)."""
+    kind, _, arg = schedule.partition(" ")
+    if kind == "every":
+        return now if last is None else max(now, last + timedelta(minutes=int(arg.rstrip("m"))))
+    local = now.astimezone(tz())
+    if kind in ("daily", "twice_daily"):
+        times = sorted(tuple(map(int, t.split(":"))) for t in arg.split(","))
+        for day in range(0, 2):
+            base = local + timedelta(days=day)
+            for hh, mm in times:
+                slot = base.replace(hour=hh, minute=mm, second=0, microsecond=0)
+                if slot > local:
+                    return slot
+    if kind == "weekly":
+        d, hm = arg.split()
+        hh, mm = map(int, hm.split(":"))
+        for day in range(0, 8):
+            base = local + timedelta(days=day)
+            slot = base.replace(hour=hh, minute=mm, second=0, microsecond=0)
+            if base.weekday() == DOW[d.upper()] and slot > local:
+                return slot
+    return now
+
+
+def agent_duty(db: Session, now: datetime | None = None) -> dict[str, dict]:
+    """Per agent: the active jobs it works in and when the next one runs."""
+    now = now or utcnow()
+    st = _state(db)
+    active = dict(active_jobs())
+    out = {}
+    for agent, names in AGENT_JOBS.items():
+        nxt = []
+        for n in names:
+            if n in active:
+                last = datetime.fromisoformat(st[n]) if st.get(n) else None
+                nxt.append((next_run(active[n], last, now), n))
+        out[agent] = {"jobs": [n for _, n in nxt], "next_at": min(nxt)[0] if nxt else None, "next_job": min(nxt)[1] if nxt else None}
+    return out
+
+
 def _state(db: Session) -> dict:
     row = db.get(AppSetting, "hq_jobs")
     return dict(row.value) if row else {}
@@ -152,7 +204,11 @@ async def run_job(name: str, db: Session) -> None:
         from .loops.enable import ensure_enable_requests
         from .loops.movers import hunt_movers
 
-        await ensure_enable_requests(db, client)  # new strategies: gate once, then ask the owner on Telegram
+        try:
+            await ensure_enable_requests(db, client)  # new strategies: gate once, then ask the owner on Telegram
+        except Exception:
+            db.rollback()
+            log.exception("enable request failed; Tariq keeps hunting")
 
         async def recheck_ignition():
             await run_daily_pick(db, client, notify, notify_owner)

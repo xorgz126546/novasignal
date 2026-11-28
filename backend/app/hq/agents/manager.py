@@ -47,12 +47,24 @@ def is_arabic(text: str) -> bool:
 
 
 def status_facts(db: Session) -> dict:
+    from ..models import HQTask
+    from ..scheduler import agent_duty
+
     agents = {a.id: a for a in db.query(HQAgent).all()}
     defs = load_defs()
+    duty = agent_duty(db)
+    last = {}
+    for d in defs.values():
+        t = db.scalar(select(HQTask).where(HQTask.agent_id == d.id, HQTask.kind != "chat").order_by(HQTask.id.desc()).limit(1))
+        if t:
+            last[d.id] = {"title": t.title[:90], "at": t.finished_at or t.created_at, "status": t.status,
+                          "summary": str((t.result or {}).get("summary", ""))[:90]}
     return {
-        "agents": [{"id": d.id, "name": d.name["en"], "status": agents[d.id].status if d.id in agents else "idle",
+        "agents": [{"id": d.id, "name": d.name["en"], "name_ar": d.name.get("ar", d.name["en"]),
+                    "status": agents[d.id].status if d.id in agents else "idle",
                     "task": agents[d.id].current_task if d.id in agents else "",
-                    "level": agents[d.id].level if d.id in agents else 1} for d in defs.values()],
+                    "level": agents[d.id].level if d.id in agents else 1,
+                    "last": last.get(d.id), "next_at": (duty.get(d.id) or {}).get("next_at")} for d in defs.values()],
         "pending_approvals": db.scalar(select(func.count()).select_from(HQApproval).where(HQApproval.status == "pending")) or 0,
         "open_incidents": db.scalar(select(func.count()).select_from(HQIncident).where(HQIncident.status != "resolved")) or 0,
         "hq_signals_total": db.scalar(select(func.count()).select_from(Signal).where(Signal.source == "hq")) or 0,
@@ -167,18 +179,55 @@ CONFIRM = {
 }
 
 
+def _ago(dt, ar: bool) -> str:
+    from ...models import utcnow
+
+    if dt is None:
+        return "—"
+    m = int(abs((utcnow() - dt).total_seconds()) // 60)
+    v = f"{m} د" if m < 90 else f"{m // 60} س" if m < 60 * 48 else f"{m // 1440} يوم"
+    w = f"{m}m" if m < 90 else f"{m // 60}h" if m < 60 * 48 else f"{m // 1440}d"
+    return v if ar else w
+
+
+def _roster(facts: dict, ar: bool) -> list[str]:
+    out = []
+    for a in facts["agents"]:
+        if a["id"] == "manager":
+            continue
+        name = a["name_ar"] if ar else a["name"]
+        if a["status"] == "working":
+            out.append(f"🟢 {name}: {'يعمل الآن' if ar else 'working now'} — {a['task'][:70]}")
+            continue
+        icon = "🔴" if a["status"] == "blocked" else "⚪"
+        last = a.get("last")
+        did = (f"{'آخر عمل قبل' if ar else 'last'} {_ago(last['at'], ar)}: {(last['summary'] or last['title'])[:60]}" if last
+               else ("لم يعمل بعد" if ar else "not run yet"))
+        nxt = a.get("next_at")
+        from ...models import utcnow
+
+        soon = nxt is not None and (nxt - utcnow()).total_seconds() < 90
+        when = ((" → يبدأ الآن" if ar else " → starting now") if soon else
+                f" → {'التالي بعد' if ar else 'next in'} {_ago(nxt, ar)}" if nxt else
+                (" → عند الطلب" if ar else " → on demand"))
+        out.append(f"{icon} {name}: {did}{when}")
+    return out
+
+
 def _template_reply(intent: str, facts: dict, ar: bool) -> str:
     if intent in CONFIRM:
         return CONFIRM[intent][1 if ar else 0]
-    working = [a for a in facts["agents"] if a["status"] == "working"]
+    working = [a for a in facts["agents"] if a["status"] == "working" and a["id"] != "manager"]  # Maya is answering you
     if ar:
-        lines = [f"الفريق: {len(facts['agents'])} وكيلًا، يعمل الآن {len(working)}.",
+        lines = [f"الفريق: {len(facts['agents'])} وكيلًا. يعمل في هذه اللحظة: {len(working)} (غير مايا التي ترد عليك).",
+                 "كل وكيل يشتغل في دوراته (ثوانٍ أو دقائق) ثم يرتاح حتى موعده التالي:", *_roster(facts, True), "",
                  f"ينتظر قرارك: {facts['pending_approvals']} • مشاكل مفتوحة: {facts['open_incidents']} • إشارات HQ: {facts['hq_signals_total']}."]
         if not facts["llm_budget"]["available"]:
             lines.append("الذكاء الاصطناعي غير مفعّل أو الميزانية انتهت، لذلك أرد بقوالب ثابتة.")
-        lines.append("الأوامر: افحص السوق • الموجز • تقارير • تعلم عن <موضوع> • ترندات • المكتبة • الحالة")
+        lines.append("الأوامر: افحص السوق • أفضل توصية • ابحث • تعلم من النتائج • الموجز • تقارير • الحالة")
     else:
-        lines = [f"Team: {len(facts['agents'])} agents, {len(working)} working now.",
+        lines = [f"Team: {len(facts['agents'])} agents. Working this second: {len(working)} (besides Maya answering you).",
+                 "Each agent works in short runs on its schedule, then rests until the next one:", *_roster(facts, False), "",
                  f"Needs you: {facts['pending_approvals']} • open incidents: {facts['open_incidents']} • HQ signals: {facts['hq_signals_total']}."]
         if not facts["llm_budget"]["available"]:
             lines.append("LLM is off or today's budget is used up, so I answer with fixed templates.")

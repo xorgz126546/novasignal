@@ -114,3 +114,23 @@ async def test_ignition_alert_once_per_move_and_triggers_recheck(db):
     assert "وليست توصية" in msgs[0]
     await movers.hunt_movers(db, IgnMarket(), notify_owner=owner, on_ignition=recheck)
     assert len(msgs) == 1  # same move: no second alert
+
+
+def test_status_shows_every_agent_with_last_work_and_next_run(db, monkeypatch):
+    from datetime import timedelta
+
+    from app.config import get_settings
+    from app.hq import runtime
+    from app.hq.agents.manager import _template_reply, status_facts
+    from app.hq.registry import ensure_agents
+    from app.hq.scheduler import next_run
+    now = utcnow()
+    assert next_run("every 30m", now - timedelta(minutes=10), now) == now + timedelta(minutes=20)
+    assert next_run("daily 08:00", None, now) > now
+    monkeypatch.setattr(get_settings(), "hq_enabled", True)
+    ensure_agents(db)
+    with runtime.task(db, "trend_hunter", "movers", "Hunting") as t:
+        t.result = {"summary": "hot list: PORTALUSDT"}
+    txt = _template_reply("status", status_facts(db), True)
+    assert txt.count("\n⚪") + txt.count("\n🟢") + txt.count("\n🔴") == 15  # every agent except Maya, one line each
+    assert "hot list: PORTALUSDT" in txt and "التالي" in txt
