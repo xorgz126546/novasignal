@@ -1,4 +1,5 @@
 import asyncio
+import os
 import sys
 
 # Fix for Windows event loop issue (MUST BE AT THE TOP)
@@ -17,7 +18,7 @@ from telegram.ext import (
     filters,
 )
 
-TOKEN = "8055993847:AAGB5XNWSMoVavoJo-3aX9JjWfXy6dSAoH4"
+TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]  # REDACTED: the previously hard-coded token was leaked in git history and must be revoked
 
 # ================= INDICATORS =================
 

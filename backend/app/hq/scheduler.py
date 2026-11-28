@@ -1,0 +1,311 @@
+"""HQ job scheduler (local timezone, default Africa/Algiers). Runs only when HQ_ENABLED=true.
+
+Last-run times are persisted (app_settings 'hq_jobs') so restarts don't re-run or skip daily jobs.
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+from datetime import datetime, timedelta
+
+from sqlalchemy.orm import Session
+
+from ..config import get_settings
+from ..db import SessionLocal
+from ..models import AppSetting, utcnow
+from .reports import tz
+
+log = logging.getLogger("cryptonex.hq.scheduler")
+DOW = {"MON": 0, "TUE": 1, "WED": 2, "THU": 3, "FRI": 4, "SAT": 5, "SUN": 6}
+_task: asyncio.Task | None = None
+
+
+def is_due(schedule: str, last_run: datetime | None, now: datetime) -> bool:
+    """schedule: 'every Nm' | 'daily HH:MM' | 'twice_daily HH:MM,HH:MM' | 'weekly DOW HH:MM' (local time)."""
+    local = now.astimezone(tz())
+    kind, _, arg = schedule.partition(" ")
+    if kind == "every":
+        minutes = int(arg.rstrip("m"))
+        return last_run is None or now - last_run >= timedelta(minutes=minutes)
+    times: list[tuple[int, int]] = []
+    weekday = None
+    if kind in ("daily", "twice_daily"):
+        times = [tuple(map(int, t.split(":"))) for t in arg.split(",")]
+    elif kind == "weekly":
+        d, hm = arg.split()
+        weekday, times = DOW[d.upper()], [tuple(map(int, hm.split(":")))]
+    else:
+        return False
+    for hh, mm in times:
+        slot = local.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if weekday is not None and local.weekday() != weekday:
+            continue
+        if local >= slot and (last_run is None or last_run.astimezone(tz()) < slot):
+            return True
+    return False
+
+
+# Which scheduled jobs each agent works in (for "who works when" in the status reply).
+AGENT_JOBS = {
+    "manager": ["daily_pick", "brief"], "scanner": ["trading_cycle", "daily_pick"], "structure": ["trading_cycle", "daily_pick"],
+    "strat_breakout": ["trading_cycle", "daily_pick"], "strat_pullback": ["trading_cycle", "daily_pick"],
+    "strat_sweep": ["trading_cycle", "daily_pick"], "risk": ["trading_cycle", "regime_watch", "daily_pick"],
+    "backtester": ["tournament", "backtest_baselines", "research"], "publisher": ["trading_cycle", "daily_pick"],
+    "auditor": ["auditor"], "engineer": ["pr_watch"], "scout": ["scout"], "trend_hunter": ["movers"],
+    "content": ["trigger_watch"], "librarian": ["learn_outcomes", "library"], "researcher": ["research"],
+}
+
+
+def next_run(schedule: str, last: datetime | None, now: datetime) -> datetime:
+    """When a job is next due (same rules as is_due)."""
+    kind, _, arg = schedule.partition(" ")
+    if kind == "every":
+        return now if last is None else max(now, last + timedelta(minutes=int(arg.rstrip("m"))))
+    local = now.astimezone(tz())
+    if kind in ("daily", "twice_daily"):
+        times = sorted(tuple(map(int, t.split(":"))) for t in arg.split(","))
+        for day in range(0, 2):
+            base = local + timedelta(days=day)
+            for hh, mm in times:
+                slot = base.replace(hour=hh, minute=mm, second=0, microsecond=0)
+                if slot > local:
+                    return slot
+    if kind == "weekly":
+        d, hm = arg.split()
+        hh, mm = map(int, hm.split(":"))
+        for day in range(0, 8):
+            base = local + timedelta(days=day)
+            slot = base.replace(hour=hh, minute=mm, second=0, microsecond=0)
+            if base.weekday() == DOW[d.upper()] and slot > local:
+                return slot
+    return now
+
+
+def agent_duty(db: Session, now: datetime | None = None) -> dict[str, dict]:
+    """Per agent: the active jobs it works in and when the next one runs."""
+    now = now or utcnow()
+    st = _state(db)
+    active = dict(active_jobs())
+    out = {}
+    for agent, names in AGENT_JOBS.items():
+        nxt = []
+        for n in names:
+            if n in active:
+                last = datetime.fromisoformat(st[n]) if st.get(n) else None
+                nxt.append((next_run(active[n], last, now), n))
+        out[agent] = {"jobs": [n for _, n in nxt], "next_at": min(nxt)[0] if nxt else None, "next_job": min(nxt)[1] if nxt else None}
+    return out
+
+
+def _state(db: Session) -> dict:
+    row = db.get(AppSetting, "hq_jobs")
+    return dict(row.value) if row else {}
+
+
+def _save(db: Session, st: dict) -> None:
+    row = db.get(AppSetting, "hq_jobs")
+    if row:
+        row.value = st
+    else:
+        db.add(AppSetting(key="hq_jobs", value=st))
+    db.commit()
+
+
+def jobs() -> list[tuple[str, str]]:
+    s = get_settings()
+    return [
+        ("trading_cycle", f"every {s.hq_scan_interval_minutes}m"),
+        ("auditor", "every 10m"),
+        ("agent_reports", f"daily {max(s.hq_brief_hour - 1, 0):02d}:30"),
+        ("brief", f"daily {s.hq_brief_hour:02d}:00"),
+        ("scout", "weekly MON 07:00"),
+        *([("trends", "twice_daily 09:00,18:00"), ("content", "daily 10:00")] if s.hq_growth else []),
+        ("backtest_baselines", "weekly FRI 06:00"),
+        ("library", f"weekly {list(DOW)[s.hq_library_weekday]} 17:00"),
+        ("pr_watch", "every 30m"),
+        ("daily_pick", f"twice_daily {s.hq_daily_pick_time}"),  # any number of HH:MM times
+        ("tournament", "weekly SUN 05:00"),
+        ("learn_outcomes", "every 60m"),  # study closed signals (winners and losers)
+        ("research", f"every {s.hq_research_interval_minutes}m"),  # Hadi: GitHub opportunity research
+        ("regime_watch", "every 30m"),  # BTC risk-on/off flips → owner alert + immediate re-check
+        ("movers", "every 30m"),  # Tariq: coins moving up with real volume → hot list for the universe
+        ("trigger_watch", "every 15m"),  # Celine: trigger level crossed → immediate re-check
+        ("study_hall", "every 20m"),  # whoever finished their work studies a new skill on GitHub (owner's rule)
+        ("study_digest", "daily 20:30"),  # one evening message: what the team learned today
+    ]
+
+
+def active_jobs() -> list[tuple[str, str]]:
+    s = get_settings()
+    if s.hq_enabled:
+        return jobs()
+    always = ({"daily_pick", "tournament", "learn_outcomes", "regime_watch", "movers", "trigger_watch"}
+              if s.hq_daily_pick else set())
+    if s.hq_research:
+        always |= {"research", "study_hall", "study_digest"}
+    return [j for j in jobs() if j[0] in always]
+
+
+async def run_job(name: str, db: Session) -> None:
+    from ..market.binance import get_client
+    from ..telegram.bot import notify
+    from .notify import notify_owner
+
+    client = get_client()
+    if name == "trading_cycle":
+        from .loops.trading import run_hq_cycle
+        await run_hq_cycle(db, client, notify)
+    elif name == "auditor":
+        from .agents.auditor import run_auditor
+        from .loops.repair import handle_new_incidents
+        r = await run_auditor(db, client, notify_owner)
+        await handle_new_incidents(db, r["incidents"])
+    elif name == "agent_reports":
+        from .reports import write_all_agent_reports
+        await write_all_agent_reports(db)
+    elif name == "brief":
+        from .reports import build_brief
+        await build_brief(db, send=True)
+    elif name == "scout":
+        from .loops.upgrade import scout_run
+        await scout_run(db)
+    elif name == "trends":
+        from .loops.growth import run_trends
+        await run_trends(db, client)
+    elif name == "content":
+        from .loops.growth import run_content
+        await run_content(db)
+    elif name == "backtest_baselines":
+        from .agents.backtester import run_gate
+        from .strategies.registry import active_strategies
+        for act in active_strategies(db):
+            await run_gate(db, client, act.strategy, act.params, f"strategy:{act.strategy.id}@weekly")
+    elif name == "library":
+        from .loops.library import run_library
+        await run_library(db)
+    elif name == "daily_pick":
+        from .loops.daily_pick import needs_tournament, run_daily_pick, run_tournament
+        if needs_tournament(db):
+            await run_tournament(db, client, notify_owner)
+        await run_daily_pick(db, client, notify, notify_owner)
+    elif name == "tournament":
+        from .loops.daily_pick import run_tournament
+        await run_tournament(db, client, notify_owner)
+    elif name == "learn_outcomes":
+        from .loops.learn import learn_from_outcomes
+        await learn_from_outcomes(db, client, notify_owner)
+    elif name == "regime_watch":
+        from .loops.daily_pick import run_daily_pick
+        from .loops.regime import regime_watch
+
+        async def recheck():
+            await run_daily_pick(db, client, notify, notify_owner)
+        await regime_watch(db, client, notify_owner, recheck)
+    elif name == "movers":
+        from .loops.daily_pick import run_daily_pick
+        from .loops.enable import ensure_enable_requests
+        from .loops.movers import hunt_movers
+
+        try:
+            await ensure_enable_requests(db, client)  # new strategies: gate once, then ask the owner on Telegram
+        except Exception:
+            db.rollback()
+            log.exception("enable request failed; Tariq keeps hunting")
+
+        async def recheck_ignition():
+            await run_daily_pick(db, client, notify, notify_owner)
+        await hunt_movers(db, client, notify_owner=notify_owner, on_ignition=recheck_ignition)
+    elif name == "trigger_watch":
+        from .loops.daily_pick import run_daily_pick
+        from .loops.watcher import watch_triggers
+
+        async def recheck_now():
+            await run_daily_pick(db, client, notify, notify_owner)
+        await watch_triggers(db, client, recheck_now)
+    elif name == "study_hall":
+        from .loops.study import pick_student, study_session
+
+        student = pick_student(db)
+        if student:
+            await study_session(db, student, client=client)
+    elif name == "study_digest":
+        from .loops.study import digest_md
+        from .reports import md_to_telegram
+
+        body = digest_md(db, utcnow() - timedelta(hours=24))
+        if body:
+            await notify_owner(md_to_telegram(body))
+    elif name == "research":
+        from .loops.research import research_run
+        await research_run(db, client=client, notify_owner=notify_owner)
+    elif name == "pr_watch":
+        from .loops.repair import watch_prs
+        await watch_prs(db)
+
+
+async def tick(now: datetime | None = None) -> list[str]:
+    now = now or utcnow()
+    ran = []
+    with SessionLocal() as db:
+        st = _state(db)
+    for name, sched in active_jobs():
+        last = datetime.fromisoformat(st[name]) if st.get(name) else None
+        if not is_due(sched, last, now):
+            continue
+        with SessionLocal() as db:
+            st[name] = now.isoformat()
+            _save(db, st)  # mark first: a crashing job doesn't loop every minute
+            try:
+                await run_job(name, db)
+                ran.append(name)
+            except Exception:
+                log.exception("HQ job %s failed", name)
+    return ran
+
+
+async def _loop() -> None:
+    while True:
+        try:
+            await tick()
+        except Exception:
+            log.exception("HQ scheduler tick failed")
+        await asyncio.sleep(60)
+
+
+def retire_content_approvals() -> int:
+    """Content is paused by the owner: close any pending content drafts so they stop asking for attention."""
+    if get_settings().hq_growth:
+        return 0
+    from .models import HQApproval
+
+    n = 0
+    with SessionLocal() as db:
+        for a in db.query(HQApproval).filter_by(status="pending", kind="content").all():
+            a.status, a.decided_at, a.decided_by = "rejected", utcnow(), "system:content_paused"
+            a.payload = {**(a.payload or {}), "reject_reason": "content paused by the owner — team moved to trade hunting"}
+            n += 1
+        db.commit()
+    return n
+
+
+def start() -> None:
+    global _task
+    s = get_settings()
+    try:
+        retire_content_approvals()
+    except Exception:
+        log.exception("could not retire content approvals")
+    if _task is None and (s.hq_enabled or s.hq_daily_pick or s.hq_research):
+        _task = asyncio.get_running_loop().create_task(_loop())
+        log.info("HQ scheduler started (%s)", get_settings().hq_timezone)
+
+
+async def stop() -> None:
+    global _task
+    if _task:
+        _task.cancel()
+        try:
+            await _task
+        except (asyncio.CancelledError, Exception):
+            pass
+        _task = None
